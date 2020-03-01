@@ -21,10 +21,7 @@ import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -259,6 +256,29 @@ public class Narrator extends ListenerAdapter {
 
     public <T extends NarratorService> T getService(Class<T> type) {
         return getServices(type).findFirst().orElse(null);
+    }
+
+
+    public Optional<TextChannel> resolveTextChannel(String name) {
+        String categoryName;
+        String[] names = name.split("/");
+        if(names.length > 2)
+            throw new IllegalArgumentException("Invalid channel name: " + name);
+        else if(names.length == 2) {
+            categoryName = names[0];
+            name = names[1];
+        }
+        else
+            categoryName = null;
+        return guild.getTextChannelsByName(name, false).stream()
+                .filter(channel -> {
+                    Category category = channel.getParent();
+                    if(category != null)
+                        return category.getName().equals(categoryName);
+                    else
+                        return categoryName == null;
+                })
+                .findFirst();
     }
 
     public Narrator(NarratorBuilder builder, String token, String serverName) {
