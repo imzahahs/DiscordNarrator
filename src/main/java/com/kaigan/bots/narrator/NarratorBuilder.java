@@ -1,5 +1,6 @@
 package com.kaigan.bots.narrator;
 
+import com.kaigan.bots.narrator.story.StoryService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import sengine.sheets.SheetParser;
@@ -88,6 +89,14 @@ public class NarratorBuilder {
         parser.parse(NarratorBuilder.class, this);
     }
 
-    // Discordia thread only
+    // Narrator thread only
+
+    public void configureStoryService(StoryService.Config config) {
+        StoryService service = bot.getService(StoryService.class);
+        if(service != null)
+            service.setConfig(config);
+        else
+            bot.addService(new StoryService(bot, config));
+    }
 
 }
