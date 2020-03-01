@@ -270,11 +270,11 @@ public class Narrator extends ListenerAdapter {
         }
         else
             categoryName = null;
-        return guild.getTextChannelsByName(name, false).stream()
+        return guild.getTextChannelsByName(name, true).stream()
                 .filter(channel -> {
                     Category category = channel.getParent();
                     if(category != null)
-                        return category.getName().equals(categoryName);
+                        return category.getName().equalsIgnoreCase(categoryName);
                     else
                         return categoryName == null;
                 })
