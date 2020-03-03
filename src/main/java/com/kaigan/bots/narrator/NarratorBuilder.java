@@ -3,6 +3,9 @@ package com.kaigan.bots.narrator;
 import com.kaigan.bots.narrator.story.StoryService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import sengine.sheets.OnSheetEnded;
+import sengine.sheets.ParseException;
+import sengine.sheets.SheetFields;
 import sengine.sheets.SheetParser;
 
 import java.io.BufferedInputStream;
@@ -15,7 +18,8 @@ import java.nio.channels.ReadableByteChannel;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
-public class NarratorBuilder implements NarratorProvider {
+@SheetFields(fields = { "downloadPath", "downloadMaxSize" })
+public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
     private static final Logger log = LogManager.getLogger("NarratorBuilder");
 
     public final String sheetFilename;
@@ -89,6 +93,9 @@ public class NarratorBuilder implements NarratorProvider {
         parser.parse(NarratorBuilder.class, this);
     }
 
+    public String downloadPath;
+    public long downloadMaxSize;
+
     // Narrator thread only
     public void configureStoryService(StoryService.Config config) {
         StoryService service = bot.getService(StoryService.class);
@@ -96,6 +103,12 @@ public class NarratorBuilder implements NarratorProvider {
             service.setConfig(config);
         else
             bot.addService(new StoryService(bot, config));
+    }
+
+    @Override
+    public void onSheetEnded() {
+        if(downloadPath == null || downloadMaxSize == 0)
+            throw new ParseException("downloadPath or downloadMaxSize not set");
     }
 
     @Override

@@ -3,7 +3,9 @@ package com.kaigan.bots.narrator;
 import com.kaigan.bots.narrator.save.SaveObject;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
-import net.dv8tion.jda.api.entities.*;
+import net.dv8tion.jda.api.entities.Category;
+import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.TextChannel;
 import net.dv8tion.jda.api.events.DisconnectEvent;
 import net.dv8tion.jda.api.events.ReconnectedEvent;
 import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent;
@@ -14,19 +16,27 @@ import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEve
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.RestAction;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import sengine.sheets.ParseException;
 
 import javax.annotation.Nonnull;
 import java.io.IOException;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Narrator extends ListenerAdapter {
@@ -35,6 +45,7 @@ public class Narrator extends ListenerAdapter {
     private static final long QUEUE_RETRY_INTERVAL = 10 * 1000;       // 10 seconds
     private static final long QUEUE_MAX_TRIES = 6;         // 6 times
 
+    private static final OkHttpClient okHttpClient = new OkHttpClient();
 
     private static final Pattern RE = Pattern.compile(
             "\\\\(.)" +         // Treat any character after a backslash literally
@@ -86,6 +97,46 @@ public class Narrator extends ListenerAdapter {
 
     public void addSave(String name, SaveObject saveObject) {
         saved.put(name, saveObject);
+    }
+
+    public String getFile(String url) {
+        String id = DigestUtils.sha256Hex(url);
+
+        // Check if file exists
+        Path path = Paths.get(builder.downloadPath, id);
+        if(Files.exists(path))
+            return path.toString();
+
+        log.info("Downloading file: " + url);
+
+        // Else download now
+        Request request = new Request.Builder()
+                .url(url)
+                .build();
+
+        try (Response response = okHttpClient.newCall(request).execute()) {
+            if (!response.isSuccessful())
+                throw new ParseException("Error " + response + " while downloading from " + url);
+
+            // Mkdirs
+            if(path.getParent() != null)
+                Files.createDirectories(path.getParent());
+
+            try (FileChannel file = FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+                long size = file.transferFrom(Channels.newChannel(response.body().byteStream()), 0, builder.downloadMaxSize + 1);
+                if(size == 0)
+                    throw new ParseException("Empty file from " + url);
+                if(file.position() > builder.downloadMaxSize)
+                    throw new ParseException("File from " + url + " exceeds max limit of " + builder.downloadMaxSize + " bytes");
+
+                log.info("Downloaded file " + id + " with " + size + " bytes");
+            }
+
+        } catch (Throwable e) {
+            throw new ParseException("Failed to download file from " + url, e);
+        }
+
+        return path.toString();
     }
 
     /**
