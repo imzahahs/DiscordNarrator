@@ -64,7 +64,7 @@ public class ParseException extends RuntimeException {
         this(s, null);
     }
 
-    ParseException(String s, Throwable throwable) {
+    public ParseException(String s, Throwable throwable) {
         super(collapseMessage(s, throwable), collapseCause(throwable));
     }
 }
