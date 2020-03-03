@@ -25,6 +25,7 @@ import static sengine.sheets.SheetParser.FieldParseResult.*;
 public class SheetParser {
 
     private static final String ESCAPE = ">";
+    private static final String RETURN = "<";
 
     private static final Pattern matcher = Pattern.compile("\\s*,\\s*");
 
@@ -458,6 +459,25 @@ public class SheetParser {
                 String value = values[shift];
                 int index = -1;
                 boolean isMethod = false;
+                if (value.startsWith(RETURN)) {
+                    if (isNextLine)
+                        break;          // Return indicator is used to start a new object
+                    value = value.substring(RETURN.length());
+                    // field or method names cannot be escaped
+                    index = serializer.findMethod(value);
+                    if (index != -1)
+                        isMethod = true;
+                    else {
+                        index = serializer.findField(value);
+                        if (index == -1) {
+                            throw new ParseException(String.format(Locale.US, "%s: explicit selection of unknown method or field %s.%s",
+                                    positionToString(positions[shift]),
+                                    type.getSimpleName(),
+                                    value
+                            ));
+                        }
+                    }
+                }
                 if (!value.startsWith(ESCAPE)) {
                     // field or method names cannot be escaped
                     index = serializer.findMethod(value);
