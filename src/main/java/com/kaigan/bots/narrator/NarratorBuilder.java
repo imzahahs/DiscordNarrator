@@ -15,7 +15,7 @@ import java.nio.channels.ReadableByteChannel;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
-public class NarratorBuilder {
+public class NarratorBuilder implements NarratorProvider {
     private static final Logger log = LogManager.getLogger("NarratorBuilder");
 
     public final String sheetFilename;
@@ -90,7 +90,6 @@ public class NarratorBuilder {
     }
 
     // Narrator thread only
-
     public void configureStoryService(StoryService.Config config) {
         StoryService service = bot.getService(StoryService.class);
         if(service != null)
@@ -99,4 +98,8 @@ public class NarratorBuilder {
             bot.addService(new StoryService(bot, config));
     }
 
+    @Override
+    public Narrator getBot() {
+        return bot;
+    }
 }
