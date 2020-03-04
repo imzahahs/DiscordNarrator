@@ -4,6 +4,7 @@ import com.kaigan.bots.narrator.save.SaveObject;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Category;
+import net.dv8tion.jda.api.entities.Emote;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.TextChannel;
 import net.dv8tion.jda.api.events.DisconnectEvent;
@@ -161,11 +162,26 @@ public class Narrator extends ListenerAdapter {
     public String format(String format, Object ... params) {
         if(params.length > 0)
             setFormatParameters(params);
-        return RE.matcher(format).replaceAll(match ->
-                match.group(1) != null ?
-                        match.group(1) :
-                        textFormatLookup.getOrDefault(match.group(3), match.group(2)).toString()
+        return RE.matcher(format).replaceAll(match -> {
+                    String text = match.group(1);
+                    if(text != null)
+                        return text;
+                    // Else get from lookup
+                    String lookup = match.group(3);
+                    if(lookup.startsWith(":") && lookup.endsWith(":")) {
+                        // Resolving emote
+                        String emote = lookup.substring(1, lookup.length() - 1);
+                        List<Emote> emotes = guild.getEmotesByName(emote, false);
+                        if(!emotes.isEmpty())
+                            return emotes.get(0).getAsMention();
+                    }
+                    return textFormatLookup.getOrDefault(lookup, match.group(2)).toString();
+                }
         );
+    }
+
+    public Optional<Emote> getChoiceEmote(int index) {
+        return guild.getEmotesByName("choice" + (index + 1), false).stream().findAny();
     }
 
     public void save() {
