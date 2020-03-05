@@ -11,11 +11,11 @@ import org.apache.logging.log4j.Logger;
 class StoryInstanceService implements NarratorService {
     private static final Logger log = LogManager.getLogger("StoryInstanceService");
 
-    final StoryService storyService;
-    final GuildMessageReceivedEvent receivedMessage;
-    final String storyId;
+    private final StoryService storyService;
+    private final GuildMessageReceivedEvent receivedMessage;
+    private final String storyId;
 
-    Message introMessage;
+    private Message introMessage;
 
     StoryInstanceService(StoryService storyService, GuildMessageReceivedEvent receivedMessage, String storyId) {
         this.storyService = storyService;
