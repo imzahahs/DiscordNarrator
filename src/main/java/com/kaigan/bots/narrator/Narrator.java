@@ -223,7 +223,11 @@ public class Narrator extends ListenerAdapter {
     }
 
     public Optional<Emote> getChoiceEmote(int index) {
-        return guild.getEmotesByName("choice" + (index + 1), false).stream().findAny();
+        return getEmote("choice" + (index + 1));
+    }
+
+    public Optional<Emote> getEmote(String name) {
+        return guild.getEmotesByName(name, false).stream().findAny();
     }
 
 //    public String formatChoices(List<String> options) {
