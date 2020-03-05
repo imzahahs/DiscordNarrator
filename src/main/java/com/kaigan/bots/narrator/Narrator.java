@@ -49,7 +49,7 @@ public class Narrator extends ListenerAdapter {
     private static final long QUEUE_RETRY_INTERVAL = 10 * 1000;       // 10 seconds
     private static final long QUEUE_MAX_TRIES = 6;         // 6 times
 
-    private static final OkHttpClient okHttpClient = new OkHttpClient();
+    public static final OkHttpClient okHttpClient = new OkHttpClient();
 
     private static final Pattern RE = Pattern.compile(
             "\\\\(.)" +         // Treat any character after a backslash literally
