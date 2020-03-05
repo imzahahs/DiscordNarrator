@@ -8,6 +8,7 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.lang.reflect.Field;
@@ -741,6 +742,64 @@ public class SheetParser {
 
         // Done reading all rows, parse
         return parse(type, existingObject);
+    }
+
+    public <T> T parseXLS(InputStream s, Class<T> type, T existingObject) {
+        try {
+            // Open workbook
+            Workbook wb = new XSSFWorkbook(s);
+
+            FormulaEvaluator evaluator = wb.getCreationHelper().createFormulaEvaluator();
+            DataFormatter formatter = new DataFormatter();
+
+            // Parse all sheets
+            int count = wb.getNumberOfSheets();
+            for(int index = 0; index < count; index++) {
+                Sheet sheet = wb.getSheetAt(index);
+
+                try {
+                    // Reset
+                    clear();
+
+                    // Evaluate all cells
+                    int lastRow = sheet.getLastRowNum();
+
+                    for (int r = 0; r <= lastRow; r++) {
+                        Row row = sheet.getRow(r);
+                        if (row == null)
+                            continue;       // UB or empty row
+
+                        int lastCell = row.getLastCellNum();
+                        if (lastCell == -1)
+                            continue;
+                        String[] values = new String[lastCell];
+
+                        for (int c = 0; c < lastCell; c++) {
+                            Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+                            if (cell != null) {
+                                // Evaluate and format cell
+                                evaluator.evaluateInCell(cell);
+                                values[c] = formatter.formatCellValue(cell);
+                            }
+                        }
+
+                        // Add row
+                        addRow(r, values);
+                    }
+
+                    // Parse
+                    existingObject = parse(type, existingObject);
+
+                } catch (Throwable e) {
+                    throw new ParseException("Error in sheet: " + sheet.getSheetName(), e);
+                }
+            }
+        } catch (IOException e) {
+            throw new ParseException("Error reading xls", e);
+        }
+
+
+        return existingObject;
     }
 
     public <T> T parseCSV(String csv, Class<T> type) {
