@@ -1,6 +1,7 @@
 package com.kaigan.bots.narrator;
 
 import com.kaigan.bots.narrator.story.StoryService;
+import net.dv8tion.jda.internal.utils.Checks;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import sengine.sheets.OnSheetEnded;
@@ -18,7 +19,10 @@ import java.nio.channels.ReadableByteChannel;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
-@SheetFields(fields = { "downloadPath", "downloadMaxSize" })
+@SheetFields(fields = {
+        "key", "saveFilePath", "saveFileInterval",
+        "downloadPath", "downloadMaxSize"
+})
 public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
     private static final Logger log = LogManager.getLogger("NarratorBuilder");
 
@@ -93,10 +97,23 @@ public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
         parser.parse(NarratorBuilder.class, this);
     }
 
+    public String key;
+
+    public String saveFilePath;
+    public long saveFileInterval;
+
     public String downloadPath;
     public long downloadMaxSize;
 
+
     // Narrator thread only
+
+    public void prepareSave(String path, long interval) {
+        this.saveFilePath = path;
+        this.saveFileInterval = interval;
+        bot.reloadSave();
+    }
+
     public void configureStoryService(StoryService.Config config) {
         StoryService service = bot.getService(StoryService.class);
         if(service != null)
@@ -107,8 +124,11 @@ public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
 
     @Override
     public void onSheetEnded() {
-        if(downloadPath == null || downloadMaxSize == 0)
-            throw new ParseException("downloadPath or downloadMaxSize not set");
+        Checks.notNull(key, "key");
+        Checks.notNull(saveFilePath, "saveFilePath");
+        Checks.positive(saveFileInterval, "saveFileInterval");
+        Checks.notNull(downloadPath, "downloadPath");
+        Checks.positive(downloadMaxSize, "downloadMaxSize");
     }
 
     @Override

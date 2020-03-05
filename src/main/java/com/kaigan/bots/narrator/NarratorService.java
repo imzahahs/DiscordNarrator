@@ -1,14 +1,11 @@
 package com.kaigan.bots.narrator;
 
-import com.kaigan.bots.narrator.save.SaveObject;
 import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent;
 import net.dv8tion.jda.api.events.guild.member.GuildMemberLeaveEvent;
 import net.dv8tion.jda.api.events.guild.member.update.GuildMemberUpdateNicknameEvent;
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
-
-import java.util.Map;
 
 public interface NarratorService {
 
@@ -47,9 +44,4 @@ public interface NarratorService {
     default boolean processMemberLeft(Narrator bot, GuildMemberLeaveEvent event) {
         return false;       // passthru
     }
-
-    default void save(Map<String, SaveObject> save) {
-        // nothing
-    }
-
 }

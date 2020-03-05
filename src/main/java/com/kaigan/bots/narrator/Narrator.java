@@ -1,6 +1,5 @@
 package com.kaigan.bots.narrator;
 
-import com.kaigan.bots.narrator.save.SaveObject;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Category;
@@ -23,10 +22,14 @@ import okhttp3.Response;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import sengine.mass.MassFile;
+import sengine.mass.io.Input;
+import sengine.mass.io.Output;
 import sengine.sheets.ParseException;
 
 import javax.annotation.Nonnull;
-import java.io.IOException;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -90,14 +93,53 @@ public class Narrator extends ListenerAdapter {
 
     private final Map<String, Object> textFormatLookup = new HashMap<>();
 
-    private final Map<String, SaveObject> saved = new HashMap<>();
+    private final MassFile saved = new MassFile();
 
-    public <T extends SaveObject> T getSave(String name) {
-        return (T) saved.get(name);
+    private final NarratorService queuedSaveService = new NarratorService() {
+        @Override
+        public long processService(Narrator bot) {
+            // Write save
+            Path path = Paths.get(builder.saveFilePath);
+            try {
+                // Mkdirs
+                if (path.getParent() != null)
+                    Files.createDirectories(path.getParent());
+                try (FileOutputStream saveFile = new FileOutputStream(path.toString(), false)) {
+                    saved.rebuild();
+                    saved.save(new Output(saveFile), builder.key);
+                }
+            }
+            catch(Throwable e) {
+                log.error("Unable to save: " + builder.saveFilePath, e);
+            }
+            return -1;
+        }
+    };
+
+    public <T> T getSave(String name) {
+        return saved.get(name);
     }
 
-    public void addSave(String name, SaveObject saveObject) {
-        saved.put(name, saveObject);
+    public void putSave(String name, Object object) {
+        saved.add(name, object);
+
+        // Queue save if havent yet
+        long delay = getServiceDelay(queuedSaveService);
+        if(delay == -1)
+            scheduleService(queuedSaveService, builder.saveFileInterval);
+    }
+
+    public void reloadSave() {
+        // Read save
+        Path path = Paths.get(builder.saveFilePath);
+        if(Files.exists(path)) {
+            // Load save
+            try(FileInputStream saveFile = new FileInputStream(builder.saveFilePath)) {
+                saved.load(new Input(saveFile), builder.key);
+            } catch(Throwable e) {
+                throw new RuntimeException("Unable to load save: " + builder.saveFilePath, e);
+            }
+        }
     }
 
     public String getFile(String url) {
@@ -182,20 +224,6 @@ public class Narrator extends ListenerAdapter {
 
     public Optional<Emote> getChoiceEmote(int index) {
         return guild.getEmotesByName("choice" + (index + 1), false).stream().findAny();
-    }
-
-    public void save() {
-        // Compile all saves
-        for(NarratorService service : services)
-            service.save(saved);
-        String json = SaveObject.toJson(saved);
-        // Save to file
-        try {
-            Files.write(Paths.get("save.json"), json.getBytes());
-            log.info("Written {} saved entries", saved.size());
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to save", e);
-        }
     }
 
 //    public String formatChoices(List<String> options) {
@@ -356,13 +384,6 @@ public class Narrator extends ListenerAdapter {
 
         // Login and prepare all data
         try {
-            // Read save        // TODO
-            if(Files.exists(Paths.get("save.json"))) {
-                String json = new String(Files.readAllBytes(Paths.get("save.json")));
-                saved.putAll(SaveObject.fromJson(json));
-                log.info("Read {} saved entries", saved.size());
-            }
-
             jda = new JDABuilder(token)
 //                    .setStatus(OnlineStatus.INVISIBLE)
                     .build().awaitReady();
@@ -505,7 +526,6 @@ public class Narrator extends ListenerAdapter {
 
     @Override
     public void onReconnect(ReconnectedEvent event) {
-        save();
         log.error("Reconnected with state loss, restarting bot");
         // Restart builder
         jda.shutdownNow();
