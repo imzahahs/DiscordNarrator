@@ -7,6 +7,9 @@ import sengine.sheets.OnSheetEnded;
 import sengine.sheets.SheetFields;
 import sengine.sheets.SheetStack;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @SheetFields(fields = {
         "title", "author", "description",
         "npcs", "players"
@@ -47,12 +50,18 @@ public class StoryBuilder implements NarratorProvider, OnSheetEnded {
 
     public PlayerBuilder[] players;
 
+    public List<StoryChannelBuilder> channels = new ArrayList<>();
+
     public StoryBuilder() {
         // no-arg constructor for mass serializer
     }
 
     public StoryBuilder(Narrator bot) {
         this.bot = bot;
+    }
+
+    public void channel(StoryChannelBuilder channel) {
+        channels.add(channel);
     }
 
     @Override
@@ -63,6 +72,7 @@ public class StoryBuilder implements NarratorProvider, OnSheetEnded {
 
     @Override
     public void onSheetEnded() {
+        Checks.notEmpty(channels, "channels");
         Checks.notEmpty(players, "players");
     }
 }
