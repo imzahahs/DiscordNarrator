@@ -48,13 +48,13 @@ public class StoryService implements NarratorService {
     })
     public static class Config implements OnSheetEnded {
 
-        @SheetFields(requiredFields = { "title", "description", "player", "status" })
+        @SheetFields(requiredFields = { "title", "description", "playerWaiting", "playerJoined", "status" })
         public static class IntroMessageConfig {
 
-            @SheetFields(requiredFields = { "title", "waiting" })
+            @SheetFields(requiredFields = { "title", "detail" })
             public static class PlayerRowConfig {
                 public String title;
-                public String waiting;
+                public String detail;
             }
 
             @SheetFields(requiredFields = { "title", "preparing", "notEnoughResources", "starting",
@@ -81,7 +81,8 @@ public class StoryService implements NarratorService {
             public String title;
             public String description;
 
-            public PlayerRowConfig player;
+            public PlayerRowConfig playerWaiting;
+            public PlayerRowConfig playerJoined;
             public StatusConfig status;
 
 
