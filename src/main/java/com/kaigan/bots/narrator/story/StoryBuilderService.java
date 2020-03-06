@@ -107,12 +107,9 @@ class StoryBuilderService implements NarratorService {
             while (e != null && !(e instanceof ParseException))
                 e = e.getCause();
             String message;
-            if (e != null) {
+            if (e != null)
                 message = e.getMessage();
-                e = e.getCause();
-                if (e != null && e.getMessage() != null && !e.getMessage().trim().isEmpty())
-                    message += "\n" + e.getMessage();
-            } else
+            else
                 message = storyService.config.uploadUnknownError.select();
 
             // Update status
