@@ -116,8 +116,8 @@ public class Narrator extends ListenerAdapter {
         }
     };
 
-    public <T> T getSave(String name) {
-        return saved.get(name);
+    public <T> T getSave(String name, T defaultValue) {
+        return saved.get(name, defaultValue);
     }
 
     public void putSave(String name, Object object) {
