@@ -68,13 +68,13 @@ class StoryBuilderService implements NarratorService {
         if(loadTask != null)
             throw new IllegalStateException("already started");     // UB
 
-        // Delete upload message to protect story source code
-        storyService.bot.queue(() -> event.getMessage().delete(), log, "Delete upload message");
-
         // Send acknowledgement message to sender
         statusMessage = storyService.config.uploadAcknowledgeMessage.select().build(storyService.bot, event.getChannel(),
                 "sender", event.getAuthor().getAsMention()
         ).complete();
+
+        // Delete upload message to protect story source code
+        storyService.bot.queue(() -> event.getMessage().delete(), log, "Delete upload message");
 
         // Load dialogue tree
         loadTask = bot.executor.submit(this::downloadStory);
