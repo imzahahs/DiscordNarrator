@@ -9,6 +9,7 @@ import sengine.sheets.SheetStack;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 @SheetFields(fields = {
         "title", "author", "description",
@@ -32,6 +33,12 @@ public class StoryBuilder implements NarratorProvider, OnSheetEnded {
         public void profilePic(String url) {
             // Download file
             SheetStack.first(NarratorProvider.class).getBot().getFile(url);
+        }
+
+        public boolean isCompatible(NpcBuilder with) {
+            return Objects.equals(name, with.name)
+                    && Objects.equals(color, with.color)
+                    && Objects.equals(profilePic, with.profilePic);
         }
     }
 
