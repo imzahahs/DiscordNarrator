@@ -4,6 +4,7 @@ import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
 import com.kaigan.bots.narrator.ProcessedMessage;
 import com.kaigan.bots.narrator.SheetMessageBuilder;
+import net.dv8tion.jda.api.entities.Category;
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.internal.utils.Checks;
 import org.apache.commons.lang3.StringUtils;
@@ -42,6 +43,7 @@ public class StoryService implements NarratorService {
             "storiesPath",
             "codeGenerateMin", "codeGenerateMax",
             "names", "monitoredChannels",
+            "storyCategory",
             "uploadAcknowledgeMessage", "uploadUnknownError", "uploadErrorMessage", "uploadSuccessMessage",
             "storyNotFoundMessage",
             "intro"
@@ -94,6 +96,8 @@ public class StoryService implements NarratorService {
 
         public String[] names;
         public String[] monitoredChannels;
+
+        public String storyCategory;
 
         public SetRandomizedSelector<SheetMessageBuilder> uploadAcknowledgeMessage;
         public SetRandomizedSelector<String> uploadUnknownError;
@@ -259,6 +263,18 @@ public class StoryService implements NarratorService {
         }
     }
 
+    @Override
+    public long onServiceStart(Narrator bot) {
+        // Get story Category
+        Category storyCategory = bot.guild.getCategoriesByName(config.storyCategory, false).get(0);
+
+        // Clear all story channels from previous session
+        bot.guild.getTextChannels().stream()
+                .filter(channel -> channel.getParent() == storyCategory)
+                .forEach(channel -> bot.queue(channel::delete, log, "Delete previous session channels"));
+
+        return -1;
+    }
 
     @Override
     public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
