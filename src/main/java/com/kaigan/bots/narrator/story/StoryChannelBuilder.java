@@ -18,8 +18,10 @@ import java.util.TimeZone;
 @SheetFields(requiredFields = { "name", "topic" })
 public class StoryChannelBuilder {
 
+    public static final String ORIGIN_NPC = "npc";
+    public static final String ORIGIN_PLAYER = "player";
+
     private static final String defaultEmptyString = "";
-    private static final String defaultSenderString = "sender";
     private static final UserMessageModel[] defaultEmptyUserMessages = new UserMessageModel[0];
     private static final SenderMessageModel[] defaultEmptySenderMessages = new SenderMessageModel[0];
 
@@ -33,7 +35,7 @@ public class StoryChannelBuilder {
     @SheetFields(fields = { "message", "origin", "idle_time", "typing_time", "onSeen" })
     public static class SenderMessageModel {
         public String message = defaultEmptyString;
-        public String origin = defaultSenderString;
+        public String origin = ORIGIN_NPC;
 
         public float idle_time = 0;
         public float typing_time = 0;
