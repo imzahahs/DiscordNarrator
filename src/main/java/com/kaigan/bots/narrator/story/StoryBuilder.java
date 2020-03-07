@@ -34,12 +34,6 @@ public class StoryBuilder implements NarratorProvider, OnSheetEnded {
             // Download file
             SheetStack.first(NarratorProvider.class).getBot().getFile(url);
         }
-
-        public boolean isCompatible(NpcBuilder with) {
-            return Objects.equals(name, with.name)
-                    && Objects.equals(color, with.color)
-                    && Objects.equals(profilePic, with.profilePic);
-        }
     }
 
     @SheetFields(requiredFields = { "name", "color", "profilePic", "description" })
