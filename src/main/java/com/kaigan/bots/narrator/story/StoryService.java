@@ -1,9 +1,6 @@
 package com.kaigan.bots.narrator.story;
 
-import com.kaigan.bots.narrator.Narrator;
-import com.kaigan.bots.narrator.NarratorService;
-import com.kaigan.bots.narrator.ProcessedMessage;
-import com.kaigan.bots.narrator.SheetMessageBuilder;
+import com.kaigan.bots.narrator.*;
 import net.dv8tion.jda.api.entities.Category;
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.internal.utils.Checks;
@@ -43,12 +40,19 @@ public class StoryService implements NarratorService {
             "storiesPath",
             "codeGenerateMin", "codeGenerateMax",
             "names", "monitoredChannels",
+            "storyBots", "storyBotTimeout",
             "storyCategory",
             "uploadAcknowledgeMessage", "uploadUnknownError", "uploadErrorMessage", "uploadSuccessMessage",
             "storyNotFoundMessage",
             "intro"
     })
     public static class Config implements OnSheetEnded {
+
+        @SheetFields(requiredFields = { "role", "token" })
+        public static class StoryBotConfig {
+            public String role;
+            public String token;
+        }
 
         @SheetFields(requiredFields = { "title", "description", "playerWaiting", "playerJoined", "status" })
         public static class IntroMessageConfig {
@@ -86,9 +90,8 @@ public class StoryService implements NarratorService {
             public PlayerRowConfig playerWaiting;
             public PlayerRowConfig playerJoined;
             public StatusConfig status;
-
-
         }
+
 
         public String storiesPath;
         public long codeGenerateMin = 1000;
@@ -96,6 +99,9 @@ public class StoryService implements NarratorService {
 
         public String[] names;
         public String[] monitoredChannels;
+
+        public StoryBotConfig[] storyBots;
+        public long storyBotTimeout;
 
         public String storyCategory;
 
@@ -115,6 +121,8 @@ public class StoryService implements NarratorService {
         public void uploadSuccessMessage(SheetMessageBuilder[] array) { uploadSuccessMessage = new SetRandomizedSelector<>(array); }
 
         public void storyNotFoundMessage(SheetMessageBuilder[] array) { storyNotFoundMessage = new SetRandomizedSelector<>(array); }
+
+        public void storyBotTimeout(String duration) { storyBotTimeout = NarratorBuilder.parseDuration(duration); }
 
         @Override
         public void onSheetEnded() {
@@ -161,6 +169,8 @@ public class StoryService implements NarratorService {
 
     private final Map<String, StoryInfo> storyCodeLookup = new HashMap<>();
     private final Map<String, StoryInfo> storyDocLookup = new HashMap<>();
+
+    private List<StoryBot> storyBots;
 
     public StoryInfo findStory(String id) {
         return storyCodeLookup.get(id);
@@ -232,7 +242,28 @@ public class StoryService implements NarratorService {
         return storyInfo;
     }
 
-
+    Optional<StoryBot> requestBot(StoryInstanceService instance, StoryBuilder.NpcBuilder state) {
+        return storyBots.stream()
+                // Check if there is an existing bot already in such state
+                .sorted(Comparator.comparing(StoryBot::isOnline).reversed())
+                .filter(bot -> bot.acquire(instance, state, false))
+                .findFirst()
+                // Else need to reconfigure existing bot
+                .or(() -> storyBots.stream()
+                        .min((bot1, bot2) -> {
+                            // First sort by profile compatibility
+                            boolean bot1ProfileCompatible = state.profilePic.equals(bot1.getProfilePic());
+                            boolean bot2ProfileCompatible = state.profilePic.equals(bot2.getProfilePic());
+                            if(bot1ProfileCompatible == bot2ProfileCompatible) {
+                                // Then sort by online status
+                                if(bot1.isOnline() == bot2.isOnline())
+                                    return Long.compare(bot2.getProfilePicAge(), bot1.getProfilePicAge());      // Then sort by profile pic age, to choose the oldest
+                                return Boolean.compare(bot2.isOnline(), bot1.isOnline());
+                            }
+                            return Boolean.compare(bot2ProfileCompatible, bot1ProfileCompatible);
+                        })
+                        .filter(bot -> bot.acquire(instance, state, true)));
+    }
 
     public void setConfig(Config config) {
         this.config = config;
@@ -246,6 +277,11 @@ public class StoryService implements NarratorService {
         names = Arrays.stream(config.names)
                 .map(String::toLowerCase)
                 .collect(Collectors.toCollection(HashSet::new));
+
+        storyBots = Arrays.stream(config.storyBots)
+                .map(botConfig -> new StoryBot(this, botConfig.token, botConfig.role))
+                .collect(Collectors.toList());
+
     }
 
     public StoryService(Narrator bot, Config config) {
@@ -254,13 +290,11 @@ public class StoryService implements NarratorService {
         setConfig(config);
 
         // Load save
-        List<StoryInfo> list = bot.getSave(SAVE_STORIES_LIST);
-        if(list != null) {
-            list.forEach(info -> {
-                storyCodeLookup.put(info.id, info);
-                storyDocLookup.put(info.docId, info);
-            });
-        }
+        List<StoryInfo> list = bot.<List<StoryInfo>>getSave(SAVE_STORIES_LIST).orElse(Collections.emptyList());
+        list.forEach(info -> {
+            storyCodeLookup.put(info.id, info);
+            storyDocLookup.put(info.docId, info);
+        });
     }
 
     @Override

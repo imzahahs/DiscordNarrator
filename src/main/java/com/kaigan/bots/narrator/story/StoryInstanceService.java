@@ -12,8 +12,8 @@ import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemove
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Stream;
 
 class StoryInstanceService implements NarratorService {
     private static final Logger log = LogManager.getLogger("StoryInstanceService");
@@ -37,6 +37,8 @@ class StoryInstanceService implements NarratorService {
     private Emote cancelEmote;
 
     private List<Member> joined;
+
+    private final Map<String, StoryBot> storyBots = new HashMap<>();
 
     private StartStatus status = StartStatus.WAITING;
 
@@ -110,8 +112,8 @@ class StoryInstanceService implements NarratorService {
             // Else can join
             joined.set(index, event.getMember());
 
-            // Refresh intro message
-            refreshIntroMessage();
+            // Attempt to prepare story and refresh intro message
+            attemptStartStory();
         }
 
 
@@ -140,6 +142,38 @@ class StoryInstanceService implements NarratorService {
         return false;
     }
 
+    private void attemptStartStory() {
+        if(joined.contains(null)) {
+            refreshIntroMessage();
+            return;         // not enough players
+        }
+        // Else can try to prepare story
+        status = StartStatus.PREPARING;
+        refreshIntroMessage();
+
+        // Prepare story
+        try {
+            // Acquire all bots
+            Stream.concat(Optional.ofNullable(builder.npcs).stream().flatMap(Arrays::stream), Arrays.stream(builder.players))
+                    .map(npc -> storyService.requestBot(this, npc).orElseThrow(() -> new RuntimeException("Unable to acquire bot: " + npc.name)))
+                    .forEach(storyBot -> storyBots.put(storyBot.getName(), storyBot));
+
+            status = StartStatus.STARTING;
+        } catch (Throwable e) {
+            log.error("Unable to prepare story", e);
+
+            // Failed to prepare, release all resources
+            for(StoryBot storyBot : storyBots.values())
+                storyBot.release(this);
+            storyBots.clear();
+
+            status = StartStatus.NOT_ENOUGH_RESOURCES;
+        }
+
+        // Refresh outcome
+        refreshIntroMessage();
+    }
+
     private void refreshIntroMessage() {
         // Format intro message
         StoryService.Config.IntroMessageConfig format = storyService.config.intro;
@@ -152,8 +186,6 @@ class StoryInstanceService implements NarratorService {
                         "author", builder.author,
                         "description", builder.description
                 ));
-
-        boolean isFull = true;
 
         for(int c = 0; c < builder.players.length; c++) {
             Member participant = joined.get(c);
@@ -183,32 +215,42 @@ class StoryInstanceService implements NarratorService {
                         ),
                         false
                 );
-                // Mark as not full
-                isFull = false;
             }
         }
 
         // Status
-        if(isFull) {
-            // Is full
-            if(status == StartStatus.WAITING) {
-                // Update status to preparing
-                status = StartStatus.PREPARING;
-
-                // TODO: queue prepare process
-
+        switch (status) {
+            case PREPARING:
                 embedBuilder.addField(
                         storyService.bot.format(format.status.title),
                         storyService.bot.format(format.status.preparing),
                         false
                 );
                 embedBuilder.setColor(format.status.preparingColor);
-            }
+                break;
 
-        }
-        else {
-            // Not full, still waiting
-            embedBuilder.setColor(format.status.waitingColor);
+            case NOT_ENOUGH_RESOURCES:
+                embedBuilder.addField(
+                        storyService.bot.format(format.status.title),
+                        storyService.bot.format(format.status.notEnoughResources),
+                        false
+                );
+                embedBuilder.setColor(format.status.notEnoughResourcesColor);
+                break;
+
+            case STARTING:
+                embedBuilder.addField(
+                        storyService.bot.format(format.status.title),
+                        storyService.bot.format(format.status.starting),
+                        false
+                );
+                embedBuilder.setColor(format.status.startingColor);
+                break;
+
+            default:
+            case WAITING:
+                embedBuilder.setColor(format.status.waitingColor);
+                break;
         }
 
         if(introMessage == null) {
