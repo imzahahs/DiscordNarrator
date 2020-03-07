@@ -16,8 +16,13 @@ import java.net.URL;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.Period;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @SheetFields(fields = {
         "key", "saveFilePath", "saveFileInterval",
@@ -25,6 +30,79 @@ import java.util.concurrent.TimeUnit;
 })
 public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
     private static final Logger log = LogManager.getLogger("NarratorBuilder");
+
+    // Helper function to parse human readable durations
+    private static final Pattern durationPattern = Pattern.compile("([0-9]+)([a-z]+)");
+
+    public static long parseDuration(String duration) {
+        duration = duration.replaceAll("\\s","").toLowerCase(Locale.ENGLISH);
+        Matcher matcher = durationPattern.matcher(duration);
+        Instant instant = Instant.EPOCH;
+        while (matcher.find()) {
+            int num = Integer.parseInt(matcher.group(1));
+            String type = matcher.group(2);
+
+            switch (type) {
+                case "ms":
+                case "millisecond":
+                case "milliseconds":
+                    instant = instant.plus(Duration.ofMillis(num));
+                    break;
+
+                case "s":
+                case "sec":
+                case "secs":
+                case "second":
+                case "seconds":
+                    instant = instant.plus(Duration.ofSeconds(num));
+                    break;
+
+                case "m":
+                case "min":
+                case "mins":
+                case "minute":
+                case "minutes":
+                    instant = instant.plus(Duration.ofMinutes(num));
+                    break;
+
+                case "h":
+                case "hr":
+                case "hrs":
+                case "hour":
+                case "hours":
+                    instant = instant.plus(Duration.ofHours(num));
+                    break;
+
+                case "d":
+                case "day":
+                case "days":
+                    instant = instant.plus(Duration.ofDays(num));
+                    break;
+
+                case "w":
+                case "week":
+                case "weeks":
+                    instant = instant.plus(Period.ofWeeks(num));
+                    break;
+
+                case "mo":
+                case "month":
+                case "months":
+                    instant = instant.plus(Period.ofMonths(num));
+                    break;
+
+                case "y":
+                case "year":
+                case "years":
+                    instant = instant.plus(Period.ofYears(num));
+                    break;
+
+                default:
+                    throw new ParseException("Unknown duration: " + type);
+            }
+        }
+        return instant.toEpochMilli();
+    }
 
     public final String sheetFilename;
     public final String googleDocId;
