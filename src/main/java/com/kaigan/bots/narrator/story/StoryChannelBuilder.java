@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 
-@SheetFields(fields = { "name" }, requiredFields = { "name" })
+@SheetFields(requiredFields = { "name", "topic" })
 public class StoryChannelBuilder {
 
     private static final String defaultEmptyString = "";
@@ -70,7 +70,9 @@ public class StoryChannelBuilder {
             trigger = builder.build();
         }
     }
+
     public String name;
+    public String topic;
 
     public Array<ConversationModel> conversations = new Array<>(ConversationModel.class);
 
