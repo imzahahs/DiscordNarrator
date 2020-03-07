@@ -19,7 +19,6 @@ import java.util.TimeZone;
 public class StoryChannelBuilder {
 
     private static final String defaultEmptyString = "";
-    private static final String defaultAutoString = "auto";
     private static final String defaultSenderString = "sender";
     private static final UserMessageModel[] defaultEmptyUserMessages = new UserMessageModel[0];
     private static final SenderMessageModel[] defaultEmptySenderMessages = new SenderMessageModel[0];
@@ -31,13 +30,10 @@ public class StoryChannelBuilder {
         public boolean is_hidden = false;
     }
 
-    @SheetFields(fields = { "message", "origin", "date", "time", "idle_time", "typing_time", "onSeen" })
+    @SheetFields(fields = { "message", "origin", "idle_time", "typing_time", "onSeen" })
     public static class SenderMessageModel {
         public String message = defaultEmptyString;
         public String origin = defaultSenderString;
-
-        public String date = defaultAutoString;
-        public String time = defaultAutoString;
 
         public float idle_time = 0;
         public float typing_time = 0;
