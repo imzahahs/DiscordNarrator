@@ -20,6 +20,7 @@ public class StoryChannelBuilder {
 
     public static final String ORIGIN_NPC = "npc";
     public static final String ORIGIN_PLAYER = "player";
+    public static final String ORIGIN_NARRATOR = "narrator";
 
     private static final String defaultEmptyString = "";
     private static final UserMessageModel[] defaultEmptyUserMessages = new UserMessageModel[0];
