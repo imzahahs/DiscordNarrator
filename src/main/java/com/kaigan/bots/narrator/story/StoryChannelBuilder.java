@@ -102,8 +102,6 @@ public class StoryChannelBuilder {
         public static SimpleDateFormat timeFormat = new SimpleDateFormat("h:mm a",Locale.US);
         public static TimeZone timeZone = TimeZone.getTimeZone("GMT+8:00");
 
-        public static float pastTimeMultiplier = 10f;
-
         public static Range defaultSwitchTime = new Range(0.3f, 0.3f);
         public static Range defaultSentenceTime = new Range(0.9f, 0.8f);                 // 0.9f, 0.8f
         public static float defaultWordsPerMinute = 6f;                 // 12f
