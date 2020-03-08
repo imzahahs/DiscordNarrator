@@ -40,11 +40,12 @@ public class StoryService implements NarratorService {
             "storiesPath",
             "codeGenerateMin", "codeGenerateMax",
             "names", "monitoredChannels",
-            "storyBots", "storyBotTimeout",
+            "storyBots", "storyBotTimeout", "storyBotTypingInterval", "storyChannelTimestep", "storyReplySelectionDelay",
             "storyCategory",
             "uploadAcknowledgeMessage", "uploadUnknownError", "uploadErrorMessage", "uploadSuccessMessage",
             "storyNotFoundMessage",
-            "intro"
+            "intro",
+            "chooseReplyMessage", "chooseReplyRowFormat"
     })
     public static class Config implements OnSheetEnded {
 
@@ -102,6 +103,9 @@ public class StoryService implements NarratorService {
 
         public StoryBotConfig[] storyBots;
         public long storyBotTimeout;
+        public long storyBotTypingInterval;
+        public long storyChannelTimestep;
+        public long storyReplySelectionDelay;
 
         public String storyCategory;
 
@@ -114,6 +118,9 @@ public class StoryService implements NarratorService {
 
         public IntroMessageConfig intro;
 
+        public SheetMessageBuilder chooseReplyMessage;
+        public String chooseReplyRowFormat;
+
 
         public void uploadAcknowledgeMessage(SheetMessageBuilder[] array) { uploadAcknowledgeMessage = new SetRandomizedSelector<>(array); }
         public void uploadUnknownError(String[] array) { uploadUnknownError = new SetRandomizedSelector<>(array); }
@@ -123,6 +130,9 @@ public class StoryService implements NarratorService {
         public void storyNotFoundMessage(SheetMessageBuilder[] array) { storyNotFoundMessage = new SetRandomizedSelector<>(array); }
 
         public void storyBotTimeout(String duration) { storyBotTimeout = NarratorBuilder.parseDuration(duration); }
+        public void storyBotTypingInterval(String duration) { storyBotTypingInterval = NarratorBuilder.parseDuration(duration); }
+        public void storyChannelTimestep(String duration) { storyChannelTimestep = NarratorBuilder.parseDuration(duration); }
+        public void storyReplySelectionDelay(String duration) { storyReplySelectionDelay = NarratorBuilder.parseDuration(duration); }
 
         @Override
         public void onSheetEnded() {

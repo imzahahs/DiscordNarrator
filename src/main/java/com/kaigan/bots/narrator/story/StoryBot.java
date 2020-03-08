@@ -4,10 +4,7 @@ import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
-import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.Icon;
-import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.Role;
+import net.dv8tion.jda.api.entities.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,6 +35,10 @@ class StoryBot implements NarratorService {
     private SaveState state;
 
     private final List<StoryInstanceService> instances = new ArrayList<>();
+
+    TextChannel getTextChannelById(String id) {
+        return guild.getTextChannelById(id);
+    }
 
     boolean isOnline() {
         return jda != null;

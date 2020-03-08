@@ -1,7 +1,5 @@
 package com.kaigan.bots.narrator.story;
 
-import com.badlogic.gdx.utils.Array;
-import com.kaigan.bots.narrator.script.Operation;
 import com.kaigan.bots.narrator.script.ScriptBuilder;
 import sengine.calc.Range;
 import sengine.sheets.OnSheetEnded;
@@ -9,89 +7,19 @@ import sengine.sheets.ParseException;
 import sengine.sheets.SheetFields;
 import sengine.sheets.SheetParser;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 @SheetFields(requiredFields = { "name", "topic" })
 public class StoryChannelBuilder {
 
     public static final String ORIGIN_NARRATOR = "narrator";
 
-    private static final String defaultEmptyString = "";
-    private static final UserMessageModel[] defaultEmptyUserMessages = new UserMessageModel[0];
-    private static final SenderMessageModel[] defaultEmptySenderMessages = new SenderMessageModel[0];
-
-    @SheetFields(fields = { "message", "player", "tags" })
-    public static class UserMessageModel implements OnSheetEnded {
-        public String message = defaultEmptyString;
-        public String player = ConversationBuilder.selectedPlayer;
-        public String[] tags;
-
-        public void player(String text) {
-            player = text.toLowerCase();        // origin is always case-insensitive
-            ConversationBuilder.selectedPlayer = player;
-        }
-
-        public void tags(String csv) { tags = SheetParser.splitStringCSV(csv); }
-
-        @Override
-        public void onSheetEnded() {
-            if(player == null)
-                throw new ParseException("player not set");
-        }
-    }
-
-    @SheetFields(fields = { "message", "npc", "idle_time", "typing_time", "onSeen" })
-    public static class SenderMessageModel implements OnSheetEnded {
-        public String message = defaultEmptyString;
-        public String npc = ConversationBuilder.selectedNpc;
-
-        public float idle_time = 0;
-        public float typing_time = 0;
-
-        public Operation[] onSeen;
-
-        public void npc(String text) {
-            npc = text.toLowerCase();        // origin is always case-insensitive
-            ConversationBuilder.selectedNpc = npc;      // set as default npc
-        }
-
-        public void onSeen(ScriptBuilder builder) {
-            onSeen = builder.build();
-        }
-
-        @Override
-        public void onSheetEnded() {
-            if(npc == null)
-                throw new ParseException("npc not set");
-        }
-    }
-
-    @SheetFields(fields = { "tags", "user_messages", "is_user_ignored", "sender_messages", "tags_to_unlock", "tags_to_lock", "trigger" })
-    public static class ConversationModel {
-
-
-        public String tags = defaultEmptyString;
-
-        public UserMessageModel[] user_messages = defaultEmptyUserMessages;
-
-        public boolean is_user_ignored = false;
-
-        public SenderMessageModel[] sender_messages = defaultEmptySenderMessages;
-
-        public String tags_to_unlock = defaultEmptyString;
-        public String tags_to_lock = defaultEmptyString;
-
-        public Operation[] trigger;
-
-        public void trigger(ScriptBuilder builder) {
-            trigger = builder.build();
-        }
-    }
-
     public String name;
     public String topic;
 
-    public Array<ConversationModel> conversations = new Array<>(ConversationModel.class);
-
+    public final List<Conversation> conversations = new ArrayList<>();
 
     public StoryChannelBuilder() {
         ConversationBuilder.linkCounter = 0;                // Reset links for each dialogue tree
@@ -106,12 +34,6 @@ public class StoryChannelBuilder {
     @SheetFields(fields = { "tags" })
     public static class ConversationBuilder implements OnSheetEnded {
 
-        private static String appendString(String source, String string) {
-            if(source == null || source.isEmpty())
-                return string;
-            return source + ", " + string;
-        }
-
         public static int linkCounter = 0;
         public static String linkPrefix = "__LINK";
         public static String selectedPlayer;
@@ -125,31 +47,32 @@ public class StoryChannelBuilder {
         private static Range sentenceTime = defaultSentenceTime;
         private static float wordsPerMinute = defaultWordsPerMinute;
 
-        public String tags = null;
+        public final List<String> tags = new ArrayList<>();
 
         private boolean isRepeatable = false;
 
         // Current
         // Conversations
-        private final Array<ConversationModel> conversations = new Array<ConversationModel>(ConversationModel.class);
-        private ConversationModel current = null;
+        private final List<Conversation> conversations = new ArrayList<>();
+        private Conversation current = null;
         private boolean isTagsModified = false;
         private String currentSender = "";
 
-        private final Array<ConversationBuilder> splits = new Array<ConversationBuilder>(ConversationBuilder.class);
-        private final Array<String> splitTags = new Array<String>(String.class);
-
+        private final List<ConversationBuilder> splits = new ArrayList<>();
+        private final List<String> splitTags = new ArrayList<>();
 
         // Time
         private float queuedIdleTime = 0;
         private float queuedTypingTime = 0;
 
+        public void tags(String csv) { tags.addAll(Arrays.asList(SheetParser.splitStringCSV(csv))); }
+
         public void repeatable() {
             isRepeatable  = true;
         }
 
-        public void split_add(String list, ConversationBuilder builder) {
-            if(builder == null || builder.conversations.size == 0)
+        public void splitAdd(String list, ConversationBuilder builder) {
+            if(builder == null || builder.conversations.isEmpty())
                 throw new ParseException("Missing added conversation");
             // Get a unique start and end name for this section
             String sectionOpenName = linkPrefix + linkCounter;
@@ -157,32 +80,32 @@ public class StoryChannelBuilder {
             String sectionFinishedName = linkPrefix + linkCounter;
             linkCounter++;
             // Add open and finish links to this section
-            ConversationModel firstConversation = builder.conversations.first();
-            firstConversation.tags = appendString(firstConversation.tags, sectionOpenName);
-            firstConversation.tags_to_lock = appendString(firstConversation.tags_to_lock, sectionOpenName);
-            ConversationModel lastConversation = builder.conversations.peek();
-            lastConversation.tags_to_unlock = appendString(lastConversation.tags_to_unlock, sectionFinishedName);
+            Conversation firstConversation = builder.conversations.get(0);
+            firstConversation.tags.add(sectionOpenName);
+            firstConversation.tagsToLock.add(sectionOpenName);
+            Conversation lastConversation = builder.conversations.get(builder.conversations.size() - 1);
+            lastConversation.tagsToUnlock.add(sectionFinishedName);
             // Add section
             conversations.addAll(builder.conversations);
 
             // Now link to specified splits
             String[] indices = SheetParser.splitStringCSV(list);
-            for(int c = 0; c < indices.length; c++) {
-                int index = Integer.valueOf(indices[c]) - 1;
+            for(String text : indices) {
+                int index = Integer.parseInt(text) - 1;
                 // Create new conversation to the last one
-                ConversationBuilder split = splits.items[index];
+                ConversationBuilder split = splits.get(index);
                 split.unlocks(sectionOpenName);
                 split.push();
-                ConversationModel conversation = split.conversations.peek();
-                conversation.tags = appendString(conversation.tags, sectionFinishedName);
-                conversation.tags_to_lock = appendString(conversation.tags_to_lock, sectionFinishedName);
+                Conversation conversation = split.conversations.get(split.conversations.size() - 1);
+                conversation.tags.add(sectionFinishedName);
+                conversation.tagsToLock.add(sectionFinishedName);
             }
         }
 
         public void split(ConversationBuilder builder) {
             if(builder == null)
                 builder = new ConversationBuilder();
-            if(builder.conversations.size == 0)
+            if(builder.conversations.isEmpty())
                 builder.push();
             // Get a unique name for this split
             String splitName = linkPrefix + linkCounter;
@@ -191,8 +114,8 @@ public class StoryChannelBuilder {
             // Unlock this split
             unlocks(splitName);
             // Label this split
-            ConversationModel firstConversation = builder.conversations.first();
-            firstConversation.tags = appendString(firstConversation.tags, splitName);
+            Conversation firstConversation = builder.conversations.get(0);
+            firstConversation.tags.add(splitName);
             // Add this split
             splits.add(builder);
         }
@@ -200,9 +123,9 @@ public class StoryChannelBuilder {
         /**
          * Waits for all of the previous splits to end
          */
-        public void join_all() {
-            if(splits.size == 0)
-                throw new ParseException("Mothing to join");
+        public void joinAll() {
+            if(splits.isEmpty())
+                throw new ParseException("Nothing to join");
 
             // Create new tag for the join
             String joinName = linkPrefix + linkCounter;
@@ -211,10 +134,8 @@ public class StoryChannelBuilder {
             unlocks(joinName);          // unlock the join automatically, but it will only unlock on IDLE
 
             // Compile all split tags into one
-            String allTags = null;
-            for(String tag : splitTags)
-                allTags = appendString(allTags, tag);
-            allTags = appendString(allTags, joinName);          // also include the join name
+            List<String> allTags = new ArrayList<>(splitTags);
+            allTags.add(joinName);          // also include the join name
 
             // For all splits, keep track of another set of links so that each split can only be entered once
             for(ConversationBuilder split : splits) {
@@ -224,16 +145,16 @@ public class StoryChannelBuilder {
 
                 // Label this split with the absence of the new tag, so that this conversation does not recurse
                 conversations.addAll(split.conversations);
-                ConversationModel conversation = split.conversations.first();
-                conversation.tags = appendString(conversation.tags, "!" + lockName);
+                Conversation conversation = split.conversations.get(0);
+                conversation.tags.add("!" + lockName);
 
                 // Lock all other splits (and the join) while this conversation is going on
-                conversation.tags_to_lock = appendString(conversation.tags_to_lock, allTags);
+                conversation.tagsToLock.addAll(allTags);
 
                 // In the last conversation, unlock all back, including the lock tag so that this split cannot be entered again
-                conversation = split.conversations.peek();
-                conversation.tags_to_unlock = appendString(conversation.tags_to_unlock, allTags);
-                conversation.tags_to_unlock = appendString(conversation.tags_to_unlock, lockName);
+                conversation = split.conversations.get(split.conversations.size() - 1);
+                conversation.tagsToUnlock.addAll(allTags);
+                conversation.tagsToUnlock.add(lockName);
             }
 
             // Clear
@@ -241,27 +162,26 @@ public class StoryChannelBuilder {
             splitTags.clear();
 
             // Create join
-            current = new ConversationModel();
-            current.tags = appendString(joinName, "IDLE");
-            current.tags_to_lock = joinName;
+            current = new Conversation();
+            current.tags.add(joinName);
+            current.tags.add("IDLE");
+            current.tagsToLock.add(joinName);
             conversations.add(current);
         }
 
         /**
          * Waits for either one of the previous split to end, persist choices
          */
-        public void join_persist() {
-            if(splits.size == 0)
-                throw new ParseException("Mothing to join");
+        public void joinPersist() {
+            if(splits.isEmpty())
+                throw new ParseException("Nothing to join");
 
             // Get a unique name for this join
             String joinName = linkPrefix + linkCounter;
             linkCounter++;
 
             // Compile all split tags into one
-            String allTags = null;
-            for(String tag : splitTags)
-                allTags = appendString(allTags, tag);
+            List<String> allTags = new ArrayList<>(splitTags);
 
             // For all splits, automatically unlock this join if either of the splits were unlocked
             for(ConversationBuilder split : splits) {
@@ -270,13 +190,13 @@ public class StoryChannelBuilder {
                 linkCounter++;
                 // In the first conversation, lock all other splits
                 conversations.addAll(split.conversations);
-                ConversationModel conversation = split.conversations.first();
-                conversation.tags = appendString(conversation.tags, "!" + lockName);
-                conversation.tags_to_lock = appendString(conversation.tags_to_lock, allTags);
+                Conversation conversation = split.conversations.get(0);
+                conversation.tags.add("!" + lockName);
+                conversation.tagsToLock.addAll(allTags);
                 // In the last conversation, unlock all, join tag and also this conversation's lock tag
-                conversation = split.conversations.peek();
-                conversation.tags_to_unlock = appendString(conversation.tags_to_unlock, joinName);
-                conversation.tags_to_unlock = appendString(conversation.tags_to_unlock, lockName);
+                conversation = split.conversations.get(split.conversations.size() - 1);
+                conversation.tagsToUnlock.add(joinName);
+                conversation.tagsToUnlock.add(lockName);
             }
 
             // Clear
@@ -284,9 +204,9 @@ public class StoryChannelBuilder {
             splitTags.clear();
 
             // Create join
-            current = new ConversationModel();
-            current.tags = joinName;
-            current.tags_to_lock = joinName;
+            current = new Conversation();
+            current.tags.add(joinName);
+            current.tagsToLock.add(joinName);
             conversations.add(current);
         }
 
@@ -294,27 +214,25 @@ public class StoryChannelBuilder {
          * Waits for either one of the previous split to end
          */
         public void join() {
-            if(splits.size == 0)
-                throw new ParseException("Mothing to join");
+            if(splits.isEmpty())
+                throw new ParseException("Nothing to join");
 
             // Get a unique name for this join
             String joinName = linkPrefix + linkCounter;
             linkCounter++;
 
             // Compile all split tags into one
-            String allTags = null;
-            for(String tag : splitTags)
-                allTags = appendString(allTags, tag);
+            List<String> allTags = new ArrayList<>(splitTags);
 
             // For all splits, automatically unlock this join if either of the splits were unlocked
             for(ConversationBuilder split : splits) {
                 // In the first conversation, lock all other splits
                 conversations.addAll(split.conversations);
-                ConversationModel conversation = split.conversations.first();
-                conversation.tags_to_lock = appendString(conversation.tags_to_lock, allTags);
+                Conversation conversation = split.conversations.get(0);
+                conversation.tagsToLock.addAll(allTags);
                 // In the last conversation, unlock join tag
-                conversation = split.conversations.peek();
-                conversation.tags_to_unlock = appendString(conversation.tags_to_unlock, joinName);
+                conversation = split.conversations.get(split.conversations.size() - 1);
+                conversation.tagsToUnlock.add(joinName);
             }
 
             // Clear
@@ -322,9 +240,9 @@ public class StoryChannelBuilder {
             splitTags.clear();
 
             // Create join
-            current = new ConversationModel();
-            current.tags = joinName;
-            current.tags_to_lock = joinName;
+            current = new Conversation();
+            current.tags.add(joinName);
+            current.tagsToLock.add(joinName);
             conversations.add(current);
         }
 
@@ -361,19 +279,19 @@ public class StoryChannelBuilder {
 
         private void push() {
             if(current == null) {
-                current = new ConversationModel();
-                current.tags = tags;
+                current = new Conversation();
+                current.tags.addAll(tags);
                 conversations.add(current);
 
                 if(!isRepeatable) {
                     String nextLinkName = linkPrefix + linkCounter;
                     linkCounter++;
 
-                    current.tags = appendString(current.tags, "!" + nextLinkName);
-                    current.tags_to_unlock = nextLinkName;
+                    current.tags.add("!" + nextLinkName);
+                    current.tagsToUnlock.add(nextLinkName);
                 }
             }
-            else if(conversations.size == 1) {
+            else if(conversations.size() == 1) {
                 // Create a new link to close up first conversation
 //                String linkName = linkPrefix + linkCounter;
 //                linkCounter++;
@@ -382,11 +300,11 @@ public class StoryChannelBuilder {
                 String nextLinkName = linkPrefix + linkCounter;
                 linkCounter++;
 //                current.tags_to_unlock = appendString(current.tags_to_unlock, linkName + ", " + nextLinkName);
-                current.tags_to_unlock = appendString(current.tags_to_unlock, nextLinkName);
+                current.tagsToUnlock.add(nextLinkName);
 
-                current = new ConversationModel();
-                current.tags = nextLinkName;
-                current.tags_to_lock = nextLinkName;
+                current = new Conversation();
+                current.tags.add(nextLinkName);
+                current.tagsToLock.add(nextLinkName);
                 conversations.add(current);
             }
             else {
@@ -394,52 +312,52 @@ public class StoryChannelBuilder {
                 String nextLinkName = linkPrefix + linkCounter;
                 linkCounter++;
 
-                current.tags_to_unlock = appendString(current.tags_to_unlock, nextLinkName);
+                current.tagsToUnlock.add(nextLinkName);
 
-                current = new ConversationModel();
-                current.tags = nextLinkName;
-                current.tags_to_lock = nextLinkName;
+                current = new Conversation();
+                current.tags.add(nextLinkName);
+                current.tagsToLock.add(nextLinkName);
                 conversations.add(current);
             }
             // Indicate tags has not been modified yet
             isTagsModified = false;
         }
 
-        public void choice(UserMessageModel[] messages) {
+        public void choice(UserMessage[] messages) {
             validatePreviousSplits();
             // Choices will always start a new conversation
-            if(current == null || current.user_messages != defaultEmptyUserMessages  || current.sender_messages != defaultEmptySenderMessages)
+            if(current == null || !current.userMessages.isEmpty()  || !current.senderMessages.isEmpty())
                 push();
-            current.user_messages = messages;
+            current.userMessages.addAll(Arrays.asList(messages));
             currentSender = "user";
             // Cleanup messages
-            for(UserMessageModel message : messages)
+            for(UserMessage message : messages)
                 message.message = message.message.trim();
         }
 
-        public void reply(SenderMessageModel[] messages) {
-            for(SenderMessageModel message : messages) {
+        public void reply(SenderMessage[] messages) {
+            for(SenderMessage message : messages) {
                 message.npc = "user";
             }
             response(messages);
         }
 
-        public void response(SenderMessageModel[] messages) {
+        public void response(SenderMessage[] messages) {
             validatePreviousSplits();
             // Update message times
-            for(SenderMessageModel message : messages) {
+            for(SenderMessage message : messages) {
                 // Live
-                if (!message.npc.equals("user") && message.idle_time == 0 && message.typing_time == 0) {     // live user responses have no timing
+                if (!message.npc.equals("user") && message.idleTime == 0 && message.typingTime == 0) {     // live user responses have no timing
                     // Check if new switching person
                     if(!currentSender.equals(message.npc))
                         queuedIdleTime += switchTime.generate();
-                    message.idle_time = queuedIdleTime + sentenceTime.generate();
+                    message.idleTime = queuedIdleTime + sentenceTime.generate();
                     queuedIdleTime = 0;
 
                     // Typing speed
                     int words = message.message.trim().split("\\s+").length;
-                    message.typing_time = (1f / wordsPerMinute) * words;
-                    message.typing_time += queuedTypingTime;
+                    message.typingTime = (1f / wordsPerMinute) * words;
+                    message.typingTime += queuedTypingTime;
                     queuedTypingTime = 0;
                 }
 
@@ -448,43 +366,35 @@ public class StoryChannelBuilder {
 
             if(current == null || isTagsModified)
                 push();         // first conversation or tags has been modified
-            else if(current.sender_messages != null) {
-                // Tags has not been modified and there are existing responses, just append
-                SenderMessageModel[] array = new SenderMessageModel[current.sender_messages.length + messages.length];
-                System.arraycopy(current.sender_messages, 0, array, 0, current.sender_messages.length);
-                System.arraycopy(messages, 0, array, current.sender_messages.length, messages.length);
-                current.sender_messages = array;
-                return;
-            }
-            // Else just use this one
-            current.sender_messages = messages;
+
+            current.senderMessages.addAll(Arrays.asList(messages));
         }
 
         public void ignore_choice() {
             validatePreviousSplits();
-            if(current != null && current.user_messages != defaultEmptyUserMessages)
-                current.is_user_ignored = true;
+            if(current != null && current.userMessages != null)
+                current.isUserIgnored = true;
         }
 
-        public void trigger(ScriptBuilder builder) {
+        public void narrator(ScriptBuilder builder) {
             validatePreviousSplits();
             if(current == null)
                 push();
-            current.trigger = builder.build();
+            current.script = builder.build();
             push();
         }
 
         private void unlocks(String tags) {
             if(current == null)
                 push();
-            current.tags_to_unlock = appendString(current.tags_to_unlock, tags);
+            current.tagsToUnlock.add(tags);
             isTagsModified = true;          // indicate that cannot append sender messages together
         }
 
         private void locks(String tags) {
             if(current == null)
                 push();
-            current.tags_to_lock = appendString(current.tags_to_lock, tags);
+            current.tagsToLock.add(tags);
             isTagsModified = true;          // indicate that cannot append sender messages together
         }
 
@@ -501,7 +411,7 @@ public class StoryChannelBuilder {
         public void proceed_when(String tags) {
             validatePreviousSplits();
             push();
-            current.tags = appendString(current.tags, tags);
+            current.tags.add(tags);
         }
 
 
@@ -511,8 +421,8 @@ public class StoryChannelBuilder {
         }
 
         private void validatePreviousSplits() {
-            if(splits.size > 0)
-                throw new RuntimeException("Missing join, join_all or join_persist for previous splits");
+            if(!splits.isEmpty())
+                throw new RuntimeException("Missing join, joinAll or joinPersist for previous splits");
         }
     }
 

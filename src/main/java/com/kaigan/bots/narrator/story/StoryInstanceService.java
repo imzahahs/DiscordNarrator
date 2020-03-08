@@ -25,7 +25,7 @@ class StoryInstanceService implements NarratorService {
         STARTING
     }
 
-    private final StoryService storyService;
+    final StoryService storyService;
     private final GuildMessageReceivedEvent receivedMessage;
     private final String storyId;
 
@@ -38,7 +38,13 @@ class StoryInstanceService implements NarratorService {
 
     private List<Member> joined;
 
-    private final Map<String, StoryBot> storyBots = new HashMap<>();
+    // Story runtime
+    final Map<String, StoryBot> storyBots = new HashMap<>();
+    final Map<String, StoryChannelService> channels = new HashMap<>();
+    final ScriptState states = new ScriptState();
+    final Map<String, Member> players = new HashMap<>();
+
+    float chatTimingMultiplier = 1f;
 
     private StartStatus status = StartStatus.WAITING;
 
@@ -151,12 +157,23 @@ class StoryInstanceService implements NarratorService {
         status = StartStatus.PREPARING;
         refreshIntroMessage();
 
-        // Prepare story
+        // Prepare story runtime
         try {
             // Acquire all bots
             Stream.concat(Optional.ofNullable(builder.npcs).stream().flatMap(Arrays::stream), Arrays.stream(builder.players))
                     .map(npc -> storyService.requestBot(this, npc).orElseThrow(() -> new RuntimeException("Unable to acquire bot: " + npc.name)))
                     .forEach(storyBot -> storyBots.put(storyBot.getName(), storyBot));
+
+            // Create all channels
+            for(StoryChannelBuilder channelBuilder : builder.channels) {
+                StoryChannelService channelService = new StoryChannelService(this, channelBuilder);
+                storyService.bot.addService(channelService);
+            }
+
+            // TODO: wait x seconds before starting
+            for(StoryChannelBuilder channelBuilder : builder.channels) {
+                states.set(channelBuilder.name + ".main", true);
+            }
 
             status = StartStatus.STARTING;
         } catch (Throwable e) {

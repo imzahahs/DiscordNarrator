@@ -62,7 +62,7 @@ public class StoryBuilder implements NarratorProvider, OnSheetEnded {
         this.bot = bot;
     }
 
-    public void channel(StoryChannelBuilder channel) {
+    public synchronized void channel(StoryChannelBuilder channel) {
         channels.add(channel);
     }
 
