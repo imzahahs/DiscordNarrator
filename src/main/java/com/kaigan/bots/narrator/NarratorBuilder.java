@@ -16,9 +16,7 @@ import java.net.URL;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
-import java.time.Duration;
 import java.time.Instant;
-import java.time.Period;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -32,21 +30,21 @@ public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
     private static final Logger log = LogManager.getLogger("NarratorBuilder");
 
     // Helper function to parse human readable durations
-    private static final Pattern durationPattern = Pattern.compile("([0-9]+)([a-z]+)");
+    private static final Pattern durationPattern = Pattern.compile("([0-9.]+)([a-z]+)");
 
     public static long parseDuration(String duration) {
         duration = duration.replaceAll("\\s","").toLowerCase(Locale.ENGLISH);
         Matcher matcher = durationPattern.matcher(duration);
         Instant instant = Instant.EPOCH;
         while (matcher.find()) {
-            int num = Integer.parseInt(matcher.group(1));
+            double num = Double.parseDouble(matcher.group(1));
             String type = matcher.group(2);
 
             switch (type) {
                 case "ms":
                 case "millisecond":
                 case "milliseconds":
-                    instant = instant.plus(Duration.ofMillis(num));
+                    instant = instant.plusMillis(Math.round(num));
                     break;
 
                 case "s":
@@ -54,7 +52,7 @@ public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
                 case "secs":
                 case "second":
                 case "seconds":
-                    instant = instant.plus(Duration.ofSeconds(num));
+                    instant = instant.plusMillis(Math.round(num * 1000));
                     break;
 
                 case "m":
@@ -62,7 +60,7 @@ public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
                 case "mins":
                 case "minute":
                 case "minutes":
-                    instant = instant.plus(Duration.ofMinutes(num));
+                    instant = instant.plusMillis(Math.round(num * 1000 * 60));
                     break;
 
                 case "h":
@@ -70,31 +68,31 @@ public class NarratorBuilder implements OnSheetEnded, NarratorProvider {
                 case "hrs":
                 case "hour":
                 case "hours":
-                    instant = instant.plus(Duration.ofHours(num));
+                    instant = instant.plusMillis(Math.round(num * 1000 * 60 * 60));
                     break;
 
                 case "d":
                 case "day":
                 case "days":
-                    instant = instant.plus(Duration.ofDays(num));
+                    instant = instant.plusMillis(Math.round(num * 1000 * 60 * 60 * 24));
                     break;
 
                 case "w":
                 case "week":
                 case "weeks":
-                    instant = instant.plus(Period.ofWeeks(num));
+                    instant = instant.plusMillis(Math.round(num * 1000 * 60 * 60 * 24 * 7));
                     break;
 
                 case "mo":
                 case "month":
                 case "months":
-                    instant = instant.plus(Period.ofMonths(num));
+                    instant = instant.plusMillis(Math.round(num * 1000 * 60 * 60 * 24 * 30.42));
                     break;
 
                 case "y":
                 case "year":
                 case "years":
-                    instant = instant.plus(Period.ofYears(num));
+                    instant = instant.plusMillis(Math.round(num * 1000 * 60 * 60 * 24 * 30.42 * 12));
                     break;
 
                 default:
