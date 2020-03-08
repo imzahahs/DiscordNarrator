@@ -98,11 +98,6 @@ public class StoryChannelBuilder {
         public static int linkCounter = 0;
         public static String linkPrefix = "__LINK";
 
-        public static SimpleDateFormat parseFormat = new SimpleDateFormat("dd MMMM yyyy h:mm a", Locale.US);
-        public static SimpleDateFormat dateFormat = new SimpleDateFormat("dd MMMM yyyy", Locale.US);
-        public static SimpleDateFormat timeFormat = new SimpleDateFormat("h:mm a",Locale.US);
-        public static TimeZone timeZone = TimeZone.getTimeZone("GMT+8:00");
-
         public static Range defaultSwitchTime = new Range(0.3f, 0.3f);
         public static Range defaultSentenceTime = new Range(0.9f, 0.8f);                 // 0.9f, 0.8f
         public static float defaultWordsPerMinute = 6f;                 // 12f
@@ -110,17 +105,6 @@ public class StoryChannelBuilder {
         private static Range switchTime = defaultSwitchTime;
         private static Range sentenceTime = defaultSentenceTime;
         private static float wordsPerMinute = defaultWordsPerMinute;
-
-        // Initialize statics
-        static {
-            parseFormat.setTimeZone(timeZone);
-            dateFormat.setTimeZone(timeZone);
-            timeFormat.setTimeZone(timeZone);
-            DateFormatSymbols lowercaseAMPM = new DateFormatSymbols(Locale.US);
-            lowercaseAMPM.setAmPmStrings(new String[] { "am", "pm" });
-            timeFormat.setDateFormatSymbols(lowercaseAMPM);
-        }
-
 
         public String tags = null;
 
