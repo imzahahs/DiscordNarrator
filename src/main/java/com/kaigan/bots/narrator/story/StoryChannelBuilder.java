@@ -9,42 +9,59 @@ import sengine.sheets.ParseException;
 import sengine.sheets.SheetFields;
 import sengine.sheets.SheetParser;
 
-import java.text.DateFormatSymbols;
-import java.text.SimpleDateFormat;
-import java.util.Locale;
-import java.util.TimeZone;
-
 
 @SheetFields(requiredFields = { "name", "topic" })
 public class StoryChannelBuilder {
 
-    public static final String ORIGIN_NPC = "npc";
-    public static final String ORIGIN_PLAYER = "player";
     public static final String ORIGIN_NARRATOR = "narrator";
 
     private static final String defaultEmptyString = "";
     private static final UserMessageModel[] defaultEmptyUserMessages = new UserMessageModel[0];
     private static final SenderMessageModel[] defaultEmptySenderMessages = new SenderMessageModel[0];
 
-    @SheetFields(fields = { "message", "tags", "is_hidden" })
-    public static class UserMessageModel {
+    @SheetFields(fields = { "message", "player", "tags" })
+    public static class UserMessageModel implements OnSheetEnded {
         public String message = defaultEmptyString;
-        public String tags = null;
-        public boolean is_hidden = false;
+        public String player = ConversationBuilder.selectedPlayer;
+        public String[] tags;
+
+        public void player(String text) {
+            player = text.toLowerCase();        // origin is always case-insensitive
+            ConversationBuilder.selectedPlayer = player;
+        }
+
+        public void tags(String csv) { tags = SheetParser.splitStringCSV(csv); }
+
+        @Override
+        public void onSheetEnded() {
+            if(player == null)
+                throw new ParseException("player not set");
+        }
     }
 
-    @SheetFields(fields = { "message", "origin", "idle_time", "typing_time", "onSeen" })
-    public static class SenderMessageModel {
+    @SheetFields(fields = { "message", "npc", "idle_time", "typing_time", "onSeen" })
+    public static class SenderMessageModel implements OnSheetEnded {
         public String message = defaultEmptyString;
-        public String origin = ORIGIN_NPC;
+        public String npc = ConversationBuilder.selectedNpc;
 
         public float idle_time = 0;
         public float typing_time = 0;
 
         public Operation[] onSeen;
 
+        public void npc(String text) {
+            npc = text.toLowerCase();        // origin is always case-insensitive
+            ConversationBuilder.selectedNpc = npc;      // set as default npc
+        }
+
         public void onSeen(ScriptBuilder builder) {
             onSeen = builder.build();
+        }
+
+        @Override
+        public void onSheetEnded() {
+            if(npc == null)
+                throw new ParseException("npc not set");
         }
     }
 
@@ -97,6 +114,8 @@ public class StoryChannelBuilder {
 
         public static int linkCounter = 0;
         public static String linkPrefix = "__LINK";
+        public static String selectedPlayer;
+        public static String selectedNpc;
 
         public static Range defaultSwitchTime = new Range(0.3f, 0.3f);
         public static Range defaultSentenceTime = new Range(0.9f, 0.8f);                 // 0.9f, 0.8f
@@ -400,7 +419,7 @@ public class StoryChannelBuilder {
 
         public void reply(SenderMessageModel[] messages) {
             for(SenderMessageModel message : messages) {
-                message.origin = "user";
+                message.npc = "user";
             }
             response(messages);
         }
@@ -410,9 +429,9 @@ public class StoryChannelBuilder {
             // Update message times
             for(SenderMessageModel message : messages) {
                 // Live
-                if (!message.origin.equals("user") && message.idle_time == 0 && message.typing_time == 0) {     // live user responses have no timing
+                if (!message.npc.equals("user") && message.idle_time == 0 && message.typing_time == 0) {     // live user responses have no timing
                     // Check if new switching person
-                    if(!currentSender.equals(message.origin))
+                    if(!currentSender.equals(message.npc))
                         queuedIdleTime += switchTime.generate();
                     message.idle_time = queuedIdleTime + sentenceTime.generate();
                     queuedIdleTime = 0;
@@ -424,7 +443,7 @@ public class StoryChannelBuilder {
                     queuedTypingTime = 0;
                 }
 
-                currentSender = message.origin;
+                currentSender = message.npc;
             }
 
             if(current == null || isTagsModified)
@@ -499,6 +518,9 @@ public class StoryChannelBuilder {
 
 
     public void add(ConversationBuilder builder) {
+        // Reset selected npc and player
+        ConversationBuilder.selectedPlayer = null;
+        ConversationBuilder.selectedNpc = null;
         conversations.addAll(builder.conversations);
     }
 
