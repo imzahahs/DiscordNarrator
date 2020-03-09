@@ -323,11 +323,11 @@ public class StoryService implements NarratorService {
 
     @Override
     public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
-        String[] words = whitespaceMatcher.matcher(message.raw).replaceAll(" ").split(" ");
-
         // Only process monitored channels
         if(!monitoredChannels.contains(event.getChannel().getId()))
             return false;       // not monitored
+
+        String[] words = whitespaceMatcher.matcher(message.raw).replaceAll(" ").split(" ");
 
         // Check if mentioned
         boolean hasMentioned = Arrays.stream(words).anyMatch(word -> names.contains(word.toLowerCase()));
