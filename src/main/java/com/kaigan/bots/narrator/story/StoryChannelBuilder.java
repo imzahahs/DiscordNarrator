@@ -47,7 +47,7 @@ public class StoryChannelBuilder {
 
         public static Range defaultSwitchTime = new Range(0.3f, 0.3f);
         public static Range defaultSentenceTime = new Range(0.9f, 0.8f);                 // 0.9f, 0.8f
-        public static float defaultWordsPerMinute = 6f;                 // 12f
+        public static float defaultWordsPerMinute = 4f;                 // 12f
 
         private static Range switchTime = defaultSwitchTime;
         private static Range sentenceTime = defaultSentenceTime;
