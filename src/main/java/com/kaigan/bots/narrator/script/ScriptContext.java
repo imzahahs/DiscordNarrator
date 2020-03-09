@@ -1,8 +1,15 @@
 package com.kaigan.bots.narrator.script;
 
 import com.badlogic.gdx.utils.Array;
+import com.kaigan.bots.narrator.story.StoryChannelService;
+import com.kaigan.bots.narrator.story.StoryInstanceService;
+import com.kaigan.bots.narrator.story.StoryService;
 
 public class ScriptContext implements Runnable {
+
+    public final StoryChannelService channel;
+    public final StoryInstanceService instance;
+    public final StoryService service;
 
     public final Array<Operation> stack = new Array<>(Operation.class);
     public final Array<Operation> done = new Array<>(Operation.class);
@@ -39,15 +46,18 @@ public class ScriptContext implements Runnable {
         return this;
     }
 
-    public ScriptContext() {
-        // nothing
-    }
 
-    public ScriptContext(Operation[] ops) {
-        insert(ops);
+    public ScriptContext(StoryChannelService channel, StoryInstanceService instance, StoryService service) {
+        this.channel = channel;
+        this.instance = instance;
+        this.service = service;
     }
 
     public ScriptContext(ScriptContext copy) {
+        this.channel = copy.channel;
+        this.instance = copy.instance;
+        this.service = copy.service;
+
         stack.addAll(copy.stack);
         done.addAll(copy.done);
         isWaiting = copy.isWaiting;

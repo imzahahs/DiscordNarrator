@@ -13,7 +13,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.*;
 import java.util.stream.Collectors;
 
-class StoryChannelService implements NarratorService, ScriptState.OnChangeListener<Object> {
+public class StoryChannelService implements NarratorService, ScriptState.OnChangeListener<Object> {
     private static final Logger log = LogManager.getLogger("StoryChannelService");
 
     private class ReplySelection {
@@ -76,8 +76,125 @@ class StoryChannelService implements NarratorService, ScriptState.OnChangeListen
     private boolean hasCheckedDialogueTree = false;
 
     private final Map<String, TextChannel> storyBotChannels = new HashMap<>();
+    private final Set<String> players = new HashSet<>();
 
     private List<ReplySelection> replySelections = Collections.emptyList();
+
+    public void addNpc(String npc, String message) {
+        // Check if already added
+        npc = npc.toLowerCase();
+        if(instance.players.containsKey(npc)) {
+            log.error("Npc {} to be added is a player", npc);
+            return;
+        }
+        if(storyBotChannels.containsKey(npc)) {
+            log.error("Npc {} already added to {}", npc, builder.name);
+            return;
+        }
+        // Get Storybot
+        Narrator narrator = instance.storyService.bot;
+        StoryBot storyBot = instance.storyBots.get(npc);
+        // Add permission
+        Member botMember = narrator.guild.getMemberById(storyBot.getMemberId());
+        narrator.queue(() -> channel.upsertPermissionOverride(botMember).setAllow(Permission.MESSAGE_READ, Permission.MESSAGE_WRITE),
+                log, "Allow npc story bot access to channel " + builder.name
+        );
+        // Resolve bot channel
+        TextChannel botChannel = storyBot.getTextChannelById(channel.getId());
+        storyBotChannels.put(npc, botChannel);
+        // Send message
+        narrator.queue(() -> channel.sendMessage(narrator.format(message,
+                "npc", botMember.getAsMention()
+        )), log, "Sending npc added message");
+    }
+
+    public void removeNpc(String npc, String message) {
+        // Check if added
+        npc = npc.toLowerCase();
+        if(players.contains(npc)) {
+            log.error("Npc {} to be removed is a player", npc);
+            return;
+        }
+        if(npc.contentEquals(StoryChannelBuilder.ORIGIN_NARRATOR)) {
+            log.error("Cannot remove narrator");
+            return;
+        }
+        TextChannel botChannel = storyBotChannels.remove(npc);
+        if(botChannel == null) {
+            log.error("Npc {} not found in {}", npc, builder.name);
+            return;
+        }
+        // Send message
+        Narrator narrator = instance.storyService.bot;
+        Member botMember = narrator.guild.getMemberById(botChannel.getGuild().getSelfMember().getId());
+        narrator.queue(() -> channel.sendMessage(narrator.format(message,
+                "npc", botMember.getAsMention()
+        )), log, "Sending npc left message");
+        // Remove permission
+        narrator.queue(() -> channel.getPermissionOverride(botMember).delete(),
+                log, "Remove npc story bot access to channel " + builder.name
+        );
+    }
+
+    public void addPlayer(String player, String message) {
+        // Check if already added
+        player = player.toLowerCase();
+        if(players.contains(player)) {
+            log.error("Player {} already added to {}", player, builder.name);
+            return;
+        }
+        // Get player
+        Member participant = instance.players.get(player);
+        if(participant == null) {
+            log.error("Unknown player {} to be added to {}", player, builder.name);
+            return;
+        }
+        // Get Storybot
+        Narrator narrator = instance.storyService.bot;
+        StoryBot storyBot = instance.storyBots.get(player);
+        // Add permissions for both
+        narrator.queue(() -> channel.upsertPermissionOverride(participant).setAllow(Permission.MESSAGE_READ, Permission.MESSAGE_WRITE),
+                log, "Allow participant access to channel " + builder.name
+        );
+        Member botMember = narrator.guild.getMemberById(storyBot.getMemberId());
+        narrator.queue(() -> channel.upsertPermissionOverride(botMember).setAllow(Permission.MESSAGE_READ, Permission.MESSAGE_WRITE),
+                log, "Allow player story bot access to channel " + builder.name
+        );
+        // Resolve bot channel
+        TextChannel botChannel = storyBot.getTextChannelById(channel.getId());
+        storyBotChannels.put(player, botChannel);
+        players.add(player);
+        // Send message
+        narrator.queue(() -> channel.sendMessage(narrator.format(message,
+                "participant", participant.getAsMention(),
+                "player", botMember.getAsMention()
+        )), log, "Sending player added message");
+    }
+
+    public void removePlayer(String player, String message) {
+        // Check if added
+        player = player.toLowerCase();
+        if(!players.remove(player)) {
+            log.error("Player {} to be removed not found in {}", player, builder.name);
+            return;
+        }
+        TextChannel botChannel = storyBotChannels.remove(player);
+        // Send message
+        Narrator narrator = instance.storyService.bot;
+        Member participant = instance.players.get(player);
+        Member botMember = narrator.guild.getMemberById(botChannel.getGuild().getSelfMember().getId());
+        narrator.queue(() -> channel.sendMessage(narrator.format(message,
+                "player", botMember.getAsMention(),
+                "participant", participant.getAsMention()
+        )), log, "Sending player left message");
+        // Remove permissions
+        narrator.queue(() -> channel.getPermissionOverride(botMember).delete(),
+                log, "Remove npc story bot access to channel " + builder.name
+        );
+        narrator.queue(() -> channel.getPermissionOverride(participant).delete(),
+                log, "Remove npc story bot access to channel " + builder.name
+        );
+    }
 
     StoryChannelService(StoryInstanceService instance, StoryChannelBuilder builder) {
         this.instance = instance;

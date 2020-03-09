@@ -15,7 +15,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.*;
 import java.util.stream.Stream;
 
-class StoryInstanceService implements NarratorService {
+public class StoryInstanceService implements NarratorService {
     private static final Logger log = LogManager.getLogger("StoryInstanceService");
 
     private enum StartStatus {
@@ -35,8 +35,6 @@ class StoryInstanceService implements NarratorService {
     private Message introMessage;
     private List<Emote> introChoiceEmotes;
     private Emote cancelEmote;
-
-    private List<Member> joined;
 
     // Story runtime
     final Map<String, StoryBot> storyBots = new HashMap<>();
@@ -77,11 +75,9 @@ class StoryInstanceService implements NarratorService {
 
         // Prepare for tracking
         introChoiceEmotes = new ArrayList<>();
-        joined = new ArrayList<>();
         for (int c = 0; c < builder.players.length; c++) {
             Emote emote = storyService.bot.getChoiceEmote(c).get();
             introChoiceEmotes.add(emote);
-            joined.add(null);
         }
         cancelEmote = storyService.bot.getEmote("no").get();
 
@@ -109,14 +105,15 @@ class StoryInstanceService implements NarratorService {
         int index = introChoiceEmotes.indexOf(event.getReactionEmote().getEmote());
         if(index != -1) {
             // Chose a player slot, ignore if already occupied
-            if(joined.get(index) != null)
+            String name = builder.players[index].name.toLowerCase();
+            if(players.containsKey(name))
                 return false;       // ignore as someone already selected this slot
             // Check if already joined as another player
-            if(joined.contains(event.getMember()) && !event.getMember().getId().equals(storyInfo.owner))
+            if(players.containsValue(event.getMember()) && !event.getMember().getId().equals(storyInfo.owner))
                 return false;       // already joined and not the owner, only allow owner to play as multiple players for testing
 
             // Else can join
-            joined.set(index, event.getMember());
+            players.put(name, event.getMember());
 
             // Attempt to prepare story and refresh intro message
             attemptStartStory();
@@ -135,11 +132,13 @@ class StoryInstanceService implements NarratorService {
         int index = introChoiceEmotes.indexOf(event.getReactionEmote().getEmote());
         if(index != -1) {
             // Remove if same player occupied
-            if(!event.getMember().equals(joined.get(index)))
+            String name = builder.players[index].name.toLowerCase();
+            Member player = players.get(name);
+            if(!event.getMember().equals(player))
                 return false;       // not the same person, ignore
 
             // Else remove user from player slot
-            joined.set(index, null);
+            players.remove(name);
 
             // Refresh intro message
             refreshIntroMessage();
@@ -149,7 +148,7 @@ class StoryInstanceService implements NarratorService {
     }
 
     private void attemptStartStory() {
-        if(joined.contains(null)) {
+        if(players.size() < builder.players.length) {
             refreshIntroMessage();
             return;         // not enough players
         }
@@ -162,7 +161,7 @@ class StoryInstanceService implements NarratorService {
             // Acquire all bots
             Stream.concat(Optional.ofNullable(builder.npcs).stream().flatMap(Arrays::stream), Arrays.stream(builder.players))
                     .map(npc -> storyService.requestBot(this, npc).orElseThrow(() -> new RuntimeException("Unable to acquire bot: " + npc.name)))
-                    .forEach(storyBot -> storyBots.put(storyBot.getName(), storyBot));
+                    .forEach(storyBot -> storyBots.put(storyBot.getName().toLowerCase(), storyBot));
 
             // Create all channels
             for(StoryChannelBuilder channelBuilder : builder.channels) {
@@ -205,7 +204,7 @@ class StoryInstanceService implements NarratorService {
                 ));
 
         for(int c = 0; c < builder.players.length; c++) {
-            Member participant = joined.get(c);
+            Member participant = players.get(builder.players[c].name.toLowerCase());
             StoryBuilder.PlayerBuilder playerBuilder = builder.players[c];
 
             if(participant != null) {

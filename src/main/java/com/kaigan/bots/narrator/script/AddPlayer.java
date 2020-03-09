@@ -1,0 +1,22 @@
+package com.kaigan.bots.narrator.script;
+
+import sengine.sheets.ParseException;
+import sengine.sheets.SheetFields;
+
+@SheetFields(requiredFields = { "name", "message" })
+public class AddPlayer extends Operation {
+
+    public String name;
+    public String message;
+
+    public void message(String message) {
+        if(!message.contains("%(player)") || !message.contains("%(participant)"))
+            throw new ParseException("message must reference %(player) and %(participant)");
+        this.message = message;
+    }
+
+    @Override
+    protected void op(ScriptContext context) {
+        context.channel.addPlayer(name, message);
+    }
+}
