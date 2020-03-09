@@ -275,14 +275,16 @@ class StoryChannelService implements NarratorService, ScriptState.OnChangeListen
         if(tree.current.isUserIgnored || message.message.startsWith(DialogueTree.DIALOG_TIMER))
             message = null;
         // Delete or update user message
+        Narrator narrator = instance.storyService.bot;
         for(ReplySelection selection : replySelections) {
             if(selection.selection.contains(message)) {
                 // Edit message
                 UserMessage finalMessage = message;
-                instance.storyService.bot.queue(() -> selection.selectionMessage.editMessage(finalMessage.message), log, "Edit reply selection message with final reply");
+                narrator.queue(() -> selection.selectionMessage.editMessage(finalMessage.message), log, "Edit reply selection message with final reply");
+                narrator.queue(() -> selection.selectionMessage.clearReactions(), log, "Clear choice reactions for selection message");
             }
             else
-                instance.storyService.bot.queue(selection.selectionMessage::delete, log, "Delete expired selection message");
+                narrator.queue(selection.selectionMessage::delete, log, "Delete expired selection message");
         }
         // Done
         replySelections = Collections.emptyList();
