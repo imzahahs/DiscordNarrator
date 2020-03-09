@@ -83,7 +83,22 @@ public class StoryInstanceService implements NarratorService {
 
             // Remove
             bot.removeService(this);
+            return -1;
+        }
 
+        // Check if player has already joined another instance
+        boolean hasJoinedAnotherInstance = bot.getServices(StoryInstanceService.class)
+                .anyMatch(instance -> instance != this && instance.players.containsValue(initiateMember));
+        if(hasJoinedAnotherInstance) {
+            // If uploaded build message, just send success response without invite
+            if(buildMessage != null) {
+                bot.queue(() -> initiateChannel.sendMessage(bot.format(introUploadSuccessFormat,
+                        "sender", initiateMember.getAsMention(),
+                        "code", storyId
+                )), log, "Sending upload success message without invite");
+            }
+            // Ignore request to create new invite
+            bot.removeService(this);
             return -1;
         }
 
