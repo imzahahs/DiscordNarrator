@@ -44,7 +44,7 @@ public class StoryService implements NarratorService {
             "storyCategory",
             "uploadAcknowledgeMessage", "uploadUnknownError", "uploadErrorMessage", "uploadSuccessMessage",
             "storyNotFoundMessage",
-            "intro",
+            "intro", "introInviteTimeout", "introConcludedTimeout", "instanceTimeout",
             "chooseReplyMessage", "chooseReplyRowFormat"
     })
     public static class Config implements OnSheetEnded {
@@ -57,18 +57,10 @@ public class StoryService implements NarratorService {
 
         @SheetFields(requiredFields = { "title", "description", "playerWaiting", "playerJoined", "status" })
         public static class IntroMessageConfig {
-
-            @SheetFields(requiredFields = { "title", "detail" })
-            public static class PlayerRowConfig {
-                public String title;
-                public String detail;
-            }
-
-            @SheetFields(requiredFields = { "title", "preparing", "notEnoughResources", "starting",
+            @SheetFields(requiredFields = { "preparing", "notEnoughResources", "starting",
                     "waitingColor", "preparingColor", "notEnoughResourcesColor", "startingColor"
             })
             public static class StatusConfig {
-                public String title;
                 public String preparing;
                 public String notEnoughResources;
                 public String starting;
@@ -88,8 +80,9 @@ public class StoryService implements NarratorService {
             public String title;
             public String description;
 
-            public PlayerRowConfig playerWaiting;
-            public PlayerRowConfig playerJoined;
+            public String playerWaiting;
+            public String playerJoined;
+
             public StatusConfig status;
         }
 
@@ -112,11 +105,14 @@ public class StoryService implements NarratorService {
         public SetRandomizedSelector<SheetMessageBuilder> uploadAcknowledgeMessage;
         public SetRandomizedSelector<String> uploadUnknownError;
         public SetRandomizedSelector<SheetMessageBuilder> uploadErrorMessage;
-        public SetRandomizedSelector<SheetMessageBuilder> uploadSuccessMessage;
+        public SetRandomizedSelector<String> uploadSuccessMessage;
 
         public SetRandomizedSelector<SheetMessageBuilder> storyNotFoundMessage;
 
         public IntroMessageConfig intro;
+        public long introInviteTimeout;
+        public long introConcludedTimeout;
+        public long instanceTimeout;
 
         public SheetMessageBuilder chooseReplyMessage;
         public String chooseReplyRowFormat;
@@ -125,7 +121,7 @@ public class StoryService implements NarratorService {
         public void uploadAcknowledgeMessage(SheetMessageBuilder[] array) { uploadAcknowledgeMessage = new SetRandomizedSelector<>(array); }
         public void uploadUnknownError(String[] array) { uploadUnknownError = new SetRandomizedSelector<>(array); }
         public void uploadErrorMessage(SheetMessageBuilder[] array) { uploadErrorMessage = new SetRandomizedSelector<>(array); }
-        public void uploadSuccessMessage(SheetMessageBuilder[] array) { uploadSuccessMessage = new SetRandomizedSelector<>(array); }
+        public void uploadSuccessMessage(String[] array) { uploadSuccessMessage = new SetRandomizedSelector<>(array); }
 
         public void storyNotFoundMessage(SheetMessageBuilder[] array) { storyNotFoundMessage = new SetRandomizedSelector<>(array); }
 
@@ -133,6 +129,10 @@ public class StoryService implements NarratorService {
         public void storyBotTypingInterval(String duration) { storyBotTypingInterval = NarratorBuilder.parseDuration(duration); }
         public void storyChannelTimestep(String duration) { storyChannelTimestep = NarratorBuilder.parseDuration(duration); }
         public void storyReplySelectionDelay(String duration) { storyReplySelectionDelay = NarratorBuilder.parseDuration(duration); }
+
+        public void introInviteTimeout(String duration) { introInviteTimeout = NarratorBuilder.parseDuration(duration); }
+        public void introConcludedTimeout(String duration) { introConcludedTimeout = NarratorBuilder.parseDuration(duration); }
+        public void instanceTimeout(String duration) { instanceTimeout = NarratorBuilder.parseDuration(duration); }
 
         @Override
         public void onSheetEnded() {
@@ -357,7 +357,13 @@ public class StoryService implements NarratorService {
         if(storyId != null) {
             log.info("Received story request: " + storyId);
 
-            StoryInstanceService instanceService = new StoryInstanceService(this, event, storyId);
+            StoryInstanceService instanceService = new StoryInstanceService(
+                    this,
+                    event.getChannel(),
+                    event.getMember(),
+                    null,
+                    storyId
+            );
             bot.addService(instanceService);
 
             return false;

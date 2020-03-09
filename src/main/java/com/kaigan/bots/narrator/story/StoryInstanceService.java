@@ -3,10 +3,11 @@ package com.kaigan.bots.narrator.story;
 import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
 import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.MessageBuilder;
 import net.dv8tion.jda.api.entities.Emote;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
+import net.dv8tion.jda.api.entities.TextChannel;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
 import org.apache.logging.log4j.LogManager;
@@ -26,12 +27,15 @@ public class StoryInstanceService implements NarratorService {
     }
 
     final StoryService storyService;
-    private final GuildMessageReceivedEvent receivedMessage;
+    private final TextChannel initiateChannel;
+    private final Member initiateMember;
+    private final Message buildMessage;
     private final String storyId;
 
     private StoryService.StoryInfo storyInfo;
     private StoryBuilder builder;
 
+    private String introUploadSuccessFormat;
     private Message introMessage;
     private List<Emote> introChoiceEmotes;
     private Emote cancelEmote;
@@ -44,11 +48,21 @@ public class StoryInstanceService implements NarratorService {
 
     float chatTimingMultiplier = 1f;
 
+    private long tIntroInviteTimeout = Long.MAX_VALUE;
+    private long tIntroConcludedTimeout = Long.MAX_VALUE;
+    private long tInstanceTimeout = Long.MAX_VALUE;
+
     private StartStatus status = StartStatus.WAITING;
 
-    StoryInstanceService(StoryService storyService, GuildMessageReceivedEvent receivedMessage, String storyId) {
+    void resetInstanceTimeout() {
+        tInstanceTimeout = System.currentTimeMillis() + storyService.config.instanceTimeout;
+    }
+
+    StoryInstanceService(StoryService storyService, TextChannel initiateChannel, Member initiateMember, Message buildMessage, String storyId) {
         this.storyService = storyService;
-        this.receivedMessage = receivedMessage;
+        this.initiateChannel = initiateChannel;
+        this.initiateMember = initiateMember;
+        this.buildMessage = buildMessage;
         this.storyId = storyId;
     }
 
@@ -62,10 +76,13 @@ public class StoryInstanceService implements NarratorService {
 
         if(storyInfo == null) {
             // Story not found
-            bot.queue(() -> storyService.config.storyNotFoundMessage.select().build(bot, receivedMessage.getChannel(),
-                    "sender", receivedMessage.getAuthor().getAsMention(),
+            bot.queue(() -> storyService.config.storyNotFoundMessage.select().build(bot, initiateChannel,
+                    "sender", initiateMember.getAsMention(),
                     "code", storyId
             ), log, "Send story not found message");
+
+            // Remove
+            bot.removeService(this);
 
             return -1;
         }
@@ -84,7 +101,42 @@ public class StoryInstanceService implements NarratorService {
         // Send intro message
         refreshIntroMessage();
 
-        return -1;
+        // Monitor timeouts
+        return storyService.config.storyChannelTimestep;
+    }
+
+    @Override
+    public long processService(Narrator bot) {
+        long currentTime = System.currentTimeMillis();
+
+        // Intro concluded (success or failed), delete the message after a while
+        if(currentTime > tIntroConcludedTimeout) {
+            tIntroConcludedTimeout = Long.MAX_VALUE;
+            // Delete message
+            introMessage.delete().queue();          // ignore result
+            if(status != StartStatus.STARTING) {
+                // If havent successfully started, stop service
+                bot.removeService(this);
+                return -1;      // ended
+            }
+        }
+
+        // Invite timed out due to inactivity, delete the message and stop service
+        if(currentTime > tIntroInviteTimeout) {
+            // Delete message
+            introMessage.delete().queue();          // ignore result
+            bot.removeService(this);
+            return -1;
+        }
+
+        // Instance timeout
+        if(currentTime > tInstanceTimeout) {
+            shutdownInstance();
+            bot.removeService(this);
+            return -1;
+        }
+
+        return storyService.config.storyChannelTimestep;
     }
 
     @Override
@@ -95,7 +147,7 @@ public class StoryInstanceService implements NarratorService {
         // Check if trying to close lobby
         if(event.getReactionEmote().getEmote() == cancelEmote) {
             // Only acknowledge if its the sender
-            if(event.getMember().equals(receivedMessage.getMember()))
+            if(event.getMember().equals(initiateMember))
                 introMessage.delete().queue();      // acknowledge intent to close
             bot.removeService(this);
             return false;
@@ -152,6 +204,10 @@ public class StoryInstanceService implements NarratorService {
             refreshIntroMessage();
             return;         // not enough players
         }
+
+        // Clear reactions
+        introMessage.clearReactions().queue();
+
         // Else can try to prepare story
         status = StartStatus.PREPARING;
         refreshIntroMessage();
@@ -167,111 +223,128 @@ public class StoryInstanceService implements NarratorService {
             for(StoryChannelBuilder channelBuilder : builder.channels) {
                 StoryChannelService channelService = new StoryChannelService(this, channelBuilder);
                 storyService.bot.addService(channelService);
+                channels.put(channelBuilder.name, channelService);
             }
 
-            // TODO: wait x seconds before starting
             for(StoryChannelBuilder channelBuilder : builder.channels) {
                 states.set(channelBuilder.name + ".main", true);
             }
 
             status = StartStatus.STARTING;
+
+            resetInstanceTimeout();
         } catch (Throwable e) {
             log.error("Unable to prepare story", e);
 
             // Failed to prepare, release all resources
-            for(StoryBot storyBot : storyBots.values())
-                storyBot.release(this);
-            storyBots.clear();
+            shutdownInstance();
 
             status = StartStatus.NOT_ENOUGH_RESOURCES;
         }
 
         // Refresh outcome
         refreshIntroMessage();
+
+        // Remove intro message after a while
+        tIntroInviteTimeout = Long.MAX_VALUE;
+        tIntroConcludedTimeout = System.currentTimeMillis() + storyService.config.introConcludedTimeout;
     }
 
     private void refreshIntroMessage() {
         // Format intro message
         StoryService.Config.IntroMessageConfig format = storyService.config.intro;
+
+        Narrator narrator = storyService.bot;
+        StringBuilder sb = new StringBuilder();
+
+        MessageBuilder messageBuilder = new MessageBuilder();
+
+        // Build acknowledgement message
+        if(buildMessage != null) {
+            if(introUploadSuccessFormat == null)
+                introUploadSuccessFormat = storyService.config.uploadSuccessMessage.select();
+            messageBuilder.append(narrator.format(introUploadSuccessFormat,
+                    "sender", initiateMember.getAsMention(),
+                    "code", storyId
+            ));
+        }
+
+        // Intro embed
         EmbedBuilder embedBuilder = new EmbedBuilder()
-                .setTitle(storyService.bot.format(format.title,
+                .setTitle(narrator.format(format.title,
                         "title", builder.title
-                ))
-                .setColor(format.status.waitingColor)
-                .setDescription(storyService.bot.format(format.description,
-                        "author", builder.author,
-                        "description", builder.description
                 ));
 
+        // Header
+        sb.append(narrator.format(format.description,
+                "author", builder.author,
+                "description", builder.description
+        ));
+
+        sb.append("\n\n");
+
+        // Assemble choices
         for(int c = 0; c < builder.players.length; c++) {
             Member participant = players.get(builder.players[c].name.toLowerCase());
             StoryBuilder.PlayerBuilder playerBuilder = builder.players[c];
 
+            if(c > 0)
+                sb.append("\n\n");
+
             if(participant != null) {
-                embedBuilder.addField(
-                        storyService.bot.format(format.playerJoined.title,
-                                "choiceEmote", introChoiceEmotes.get(c).getAsMention(),
-                                "name", playerBuilder.name
-                        ),
-                        storyService.bot.format(format.playerJoined.detail,
-                                "description", playerBuilder.description,
-                                "player", participant.getAsMention()
-                        ),
-                        false
-                );
+                sb.append(narrator.format(format.playerJoined,
+                        "choiceEmote", introChoiceEmotes.get(c).getAsMention(),
+                        "name", playerBuilder.name,
+                        "description", playerBuilder.description,
+                        "player", participant.getAsMention()
+                ));
             }
             else {
-                embedBuilder.addField(
-                        storyService.bot.format(format.playerWaiting.title,
-                                "choiceEmote", introChoiceEmotes.get(c).getAsMention(),
-                                "name", playerBuilder.name
-                        ),
-                        storyService.bot.format(format.playerWaiting.detail,
-                                "description", playerBuilder.description
-                        ),
-                        false
-                );
+                sb.append(narrator.format(format.playerWaiting,
+                        "choiceEmote", introChoiceEmotes.get(c).getAsMention(),
+                        "name", playerBuilder.name,
+                        "description", playerBuilder.description
+                ));
             }
         }
 
         // Status
+
+        // Status
         switch (status) {
             case PREPARING:
-                embedBuilder.addField(
-                        storyService.bot.format(format.status.title),
-                        storyService.bot.format(format.status.preparing),
-                        false
-                );
+                sb.append("\n\n");
+                sb.append(narrator.format(format.status.preparing));
                 embedBuilder.setColor(format.status.preparingColor);
                 break;
 
             case NOT_ENOUGH_RESOURCES:
-                embedBuilder.addField(
-                        storyService.bot.format(format.status.title),
-                        storyService.bot.format(format.status.notEnoughResources),
-                        false
-                );
+                sb.append("\n\n");
+                sb.append(narrator.format(format.status.notEnoughResources));
                 embedBuilder.setColor(format.status.notEnoughResourcesColor);
                 break;
 
             case STARTING:
-                embedBuilder.addField(
-                        storyService.bot.format(format.status.title),
-                        storyService.bot.format(format.status.starting),
-                        false
-                );
+                sb.append("\n\n");
+                sb.append(narrator.format(format.status.starting));
                 embedBuilder.setColor(format.status.startingColor);
                 break;
 
             default:
             case WAITING:
-                embedBuilder.setColor(format.status.waitingColor);
+                // nothing
                 break;
         }
 
+        embedBuilder.setDescription(sb.toString());
+        messageBuilder.setEmbed(embedBuilder.build());
+
         if(introMessage == null) {
             // Send new message
-            introMessage = receivedMessage.getChannel().sendMessage(embedBuilder.build()).complete();
+            if(buildMessage != null)
+                introMessage = buildMessage.editMessage(messageBuilder.build()).complete();       // Edit existing build message
+            else
+                introMessage = initiateChannel.sendMessage(messageBuilder.build()).complete();
 
             // Choice emotes
             for(Emote emote : introChoiceEmotes)
@@ -281,7 +354,23 @@ public class StoryInstanceService implements NarratorService {
         }
         else {
             // Else just edit existing intro message
-            storyService.bot.queue(() -> introMessage.editMessage(embedBuilder.build()), log, "Refresh intro message");
+            storyService.bot.queue(() -> introMessage.editMessage(messageBuilder.build()), log, "Refresh intro message");
         }
+
+        // Queue idle timeout
+        tIntroInviteTimeout = System.currentTimeMillis() + storyService.config.introInviteTimeout;
+    }
+
+    private void shutdownInstance() {
+        // Release all acquired bots
+        for(StoryBot storyBot : storyBots.values())
+            storyBot.release(this);
+        storyBots.clear();
+
+        // Release all channels
+        for(StoryChannelService channel : channels.values()) {
+            storyService.bot.removeService(channel);
+        }
+        channels.clear();
     }
 }

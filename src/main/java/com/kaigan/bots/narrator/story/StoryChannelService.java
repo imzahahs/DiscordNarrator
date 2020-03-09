@@ -271,6 +271,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                             // Send message
                             TextChannel originChannel = resolveSenderChannel(message.npc);
                             bot.queue(() -> originChannel.sendMessage(new MessageBuilder(message.message).build()), log, "Send message to channel " + channel.getName());
+                            instance.resetInstanceTimeout();            // Reset instance timeout
                         }
                     }
                     // Else time for first message or already showed last message
@@ -359,6 +360,8 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                 // Resolve player and send message now
                 .map(ReplySelection::new)
                 .collect(Collectors.toList());
+
+        instance.resetInstanceTimeout();            // Reset instance timeout
     }
 
     private void cancelReplySelection() {
@@ -417,197 +420,16 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
     }
 
     @Override
+    public boolean onServiceStop(Narrator bot) {
+        // Delete channel
+        bot.queue(() -> channel.delete(), log, "Delete story channel " + builder.name);
+        return true;
+    }
+
+    @Override
     public void onChanged(String name, Object var, Object prev) {
         // Invalidate tree
         hasCheckedDialogueTree = false;
     }
 
 }
-
-
-//package com.kaigan.bots.discordia.services.story;
-//
-//import com.kaigan.bots.discordia.Discordia;
-//import com.kaigan.bots.discordia.DiscordiaService;
-//import org.apache.logging.log4j.LogManager;
-//import org.apache.logging.log4j.Logger;
-//
-//public class StoryChannelService implements DiscordiaService, ScriptState.OnChangeListener<Object> {
-//    private static final Logger log = LogManager.getLogger("StoryChannelService");
-//
-//    public static final String ORIGIN_USER = "user";
-//    public static final String ORIGIN_SENDER = "sender";
-//
-//    public static final String TIME_AUTO = "auto";
-//
-//    public final StoryInstanceService instance;
-//    public final DialogueTree tree;
-//
-//    // Current
-//    private int currentMessage = -1;
-//    private long tTypingScheduled = Long.MAX_VALUE;
-//    private long tNextMessageScheduled = -1;
-//    private long tNextTimedReplyScheduled = Long.MAX_VALUE;
-//
-//    // Local timing multiplier
-//    public float chatTimingMultiplier = 1f;
-//
-//    public float getTypingScheduled() {
-//        return tTypingScheduled;
-//    }
-//
-//    public float getNextMessageScheduled() {
-//        return tNextMessageScheduled;
-//    }
-//
-//    public boolean isTimedReply(ChatApp app) {
-//        return app.getRenderTime() > tNextTimedReplyScheduled;
-//    }
-//
-//    public StoryChannelService(StoryInstanceService instance, StoryChannelBuilder model) {
-//        this.instance = instance;
-//
-//        this.tree = new DialogueTree(instance.states, model);
-//        instance.states.addOnChangeListener(tree.namespace, Object.class, this);
-//    }
-//
-//
-//
-//    public boolean reply(ChatApp app, String userMessage) {
-//        int index = tree.makeCurrent(userMessage);
-//        if(index == -1)
-//            return false;       // contact is not expecting this result
-//        tNextTimedReplyScheduled = Float.MAX_VALUE;         // Clear timed reply
-//        // Else recognize user's message, only if it's not ignored by the conversation and it's not a timed reply
-//        UserMessage message = tree.current.userMessages[index];
-//        if(!tree.current.isUserIgnored && !userMessage.startsWith(Globals.DIALOG_TIMER)) {
-//            String timeText = app.getCurrentTimeText();
-//            String dateText = app.getCurrentDateText();
-//            // Recognize as past message
-//            if(userMessage.startsWith(Globals.GALLERY_PREFIX) || message.message.startsWith(Globals.KEYBOARD_WILDCARD)) {
-//                // Media message
-//                app.addMessage(this, ORIGIN_USER, userMessage, timeText, dateText, null);
-//                // Need to record user message as custom as we might be dealing with wildcards
-//                tree.addPastUserMessage(tree.current, message, userMessage, timeText, dateText);
-//            }
-//            else {
-//                // Normal message
-//                app.addMessage(this, ORIGIN_USER, message.message, timeText, dateText, null);
-//                tree.addPastUserMessage(tree.current, message, null, timeText, dateText);
-//            }
-//        }
-//
-//        update(app);
-//
-//        if(tree.current != null)
-//            app.refreshAvailableUserMessages(this);
-//
-//        return true;
-//    }
-//
-//    public void resetScheduledRefresh() {
-//        tNextRefreshScheduled = -1;
-//    }
-//
-//    public void update() {
-//        while(true) {
-//            if (tree.current != null) {
-//                // There is a conversation going on, check if its time
-//                while (true) {
-//                    if (app.getRenderTime() >= tTypingScheduled) {
-//                        // Inform that is typing
-//                        SenderMessage message = tree.current.senderMessages[currentMessage];
-//                        if(message.message == null || message.message.isEmpty() || !message.message.startsWith(Globals.SECTION_PREFIX))
-//                            app.informTyping(this, message.origin);         // dont inform typing only if message is a section
-//                        tTypingScheduled = Float.MAX_VALUE;
-//                    }
-//                    if (app.getRenderTime() < tNextMessageScheduled)
-//                        return;         // not yet time
-//                    // Else time to show message or prepare first message
-//                    if (currentMessage != -1) {
-//                        // Time to show this message
-//                        SenderMessage message = tree.current.senderMessages[currentMessage];
-//
-//                        if(message.message != null && !message.message.isEmpty()) {
-//                            // Increase time
-//                            if(message.tTypingTime > 0) {
-//                                long millis = Globals.grid.getSystemTime();
-//                                long delta = (long) ((message.tTypingTime * Globals.tChatTypingTimeSkipMultiplier) * 1000f);
-//                                millis += delta;
-//                                Globals.grid.setSystemTime(millis);
-//                            }
-//
-//                            // Prepare time and date text
-//                            String timeText = message.timeText.contentEquals(TIME_AUTO) ? app.getCurrentTimeText() : message.timeText;
-//                            String dateText = message.dateText.contentEquals(TIME_AUTO) ? app.getCurrentDateText() : message.dateText;
-//
-//                            // Update app
-//                            tree.addPastSenderMessage(tree.current, message, timeText, dateText);
-//                            app.addMessage(this, message.origin, message.message, timeText, dateText, message.onSeen);
-//                        }
-//                    }
-//                    // Else time for first message or already showed last message
-//                    currentMessage++;
-//                    // Try next message
-//                    if (currentMessage >= tree.current.senderMessages.length) {
-//                        // Finished messages, inform tree that conversation ended
-//                        tree.finishCurrent();
-//                        // Reset
-//                        currentMessage = -1;
-//                        tNextMessageScheduled = -1;
-//                        tNextRefreshScheduled = -1;
-//                        tTypingScheduled = Float.MAX_VALUE;
-//                        break;        // finished next message
-//                    } else {
-//                        // Continue next message
-//                        SenderMessage message = tree.current.senderMessages[currentMessage];
-//                        if(message.tTypingTime > 0f)
-//                            tTypingScheduled = app.getRenderTime() + (message.tIdleTime * Globals.tChatTimingMultiplier * chatTimingMultiplier);
-//                        tNextMessageScheduled = app.getRenderTime() + ((message.tIdleTime + message.tTypingTime) * Globals.tChatTimingMultiplier * chatTimingMultiplier);
-//                    }
-//                }
-//                // Can come here only if finished a conversation
-//            }
-//            else if(app.getRenderTime() > tNextTimedReplyScheduled) {
-//                // It's time to reply
-//                tNextTimedReplyScheduled = Float.MAX_VALUE;         // Clear timed reply
-//                reply(app, tree.availableUserMessages.get(tree.timedUserMessageIndex).message);
-//                // Remove idle wait
-//                if(tree.current != null)
-//                    tTypingScheduled = app.getRenderTime();
-//
-//                return;
-//            }
-//            else if(app.getRenderTime() < tNextRefreshScheduled)
-//                return;         // not yet time to refresh
-//
-//            // Else need to find a conversation
-//            tree.refreshCurrent();
-//            // User message could be invalidated here, so have to reset scheduled time message. The downside is whenever the tree refreshes, scheduled time message would have to start again
-//            tNextTimedReplyScheduled = Float.MAX_VALUE;         // Clear timed reply
-//
-//            // If there are user messages, inform app to update
-//            if(!tree.availableUserMessages.isEmpty()) {
-//                // Conversation can be made, but requires user to type a message, but queue refresh as other conversation can be unlocked due to external triggers
-//                tNextRefreshScheduled = Float.MAX_VALUE; // app.getRenderTime() + tRefreshInterval;
-//                app.refreshAvailableUserMessages(this);
-//                if(tree.timedUserMessageIndex != -1)
-//                    tNextTimedReplyScheduled = app.getRenderTime() + tree.timedUserMessageDelay;
-//                break;
-//            }
-//            else if(tree.current == null) {
-//                // No conversation can be made now, queue refresh
-//                tNextRefreshScheduled = Float.MAX_VALUE; // app.getRenderTime() + tRefreshInterval;
-//                app.refreshAvailableUserMessages(this);
-//                break;
-//            }
-//            // Else a conversation has been made current, display messages
-//        }
-//    }
-//
-//    @Override
-//    public void onChanged(String name, Object var, Object prev) {
-//        // Request to refresh now
-//        resetScheduledRefresh();
-//    }
-//}

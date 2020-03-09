@@ -94,12 +94,15 @@ class StoryBuilderService implements NarratorService {
             // Save story
             StoryService.StoryInfo storyInfo = storyService.saveStory(builder, event.getAuthor().getId(), docId);
 
-            // Send acknowledgement message
-            bot.queue(() -> storyService.config.uploadSuccessMessage.select().edit(bot, statusMessage,
-                    "sender", event.getAuthor().getAsMention(),
-                    "code", storyInfo.id
-            ), log, "Update status message to inform success");
-
+            // Start instance right away
+            StoryInstanceService instanceService = new StoryInstanceService(
+                    storyService,
+                    event.getChannel(),
+                    event.getMember(),
+                    statusMessage,
+                    storyInfo.id
+            );
+            bot.addService(instanceService);
         } catch (Throwable e) {
             log.error("Failed build story", e);
 
@@ -119,6 +122,9 @@ class StoryBuilderService implements NarratorService {
                     "error", finalMessage
             ), log, "Update status message to inform failure");
         }
+
+        // Done, stop service
+        bot.removeService(this);
 
         return -1;
     }
