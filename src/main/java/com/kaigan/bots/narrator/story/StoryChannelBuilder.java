@@ -22,6 +22,11 @@ public class StoryChannelBuilder {
 
     public final List<Conversation> conversations = new ArrayList<>();
 
+    public void name(String name) {
+        if(!name.matches("[a-z0-9\\-]+") || name.length() >= 100)
+            throw new ParseException("invalid channel name");
+    }
+
     public StoryChannelBuilder() {
         ConversationBuilder.linkCounter = 0;                // Reset links for each dialogue tree
 
