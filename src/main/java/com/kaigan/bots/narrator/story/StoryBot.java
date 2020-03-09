@@ -36,6 +36,10 @@ class StoryBot implements NarratorService {
 
     private final List<StoryInstanceService> instances = new ArrayList<>();
 
+    String getMemberId() {
+        return guild.getSelfMember().getId();
+    }
+
     TextChannel getTextChannelById(String id) {
         return guild.getTextChannelById(id);
     }
@@ -200,7 +204,7 @@ class StoryBot implements NarratorService {
         return storyService.config.storyBotTimeout;
     }
 
-    private boolean isFree() {
+    boolean isFree() {
         return instances.isEmpty();
     }
 }
