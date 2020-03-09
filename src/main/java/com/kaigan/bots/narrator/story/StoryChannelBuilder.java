@@ -1,5 +1,6 @@
 package com.kaigan.bots.narrator.story;
 
+import com.kaigan.bots.narrator.SheetMessageBuilder;
 import com.kaigan.bots.narrator.script.ScriptBuilder;
 import sengine.calc.Range;
 import sengine.sheets.OnSheetEnded;
@@ -355,7 +356,24 @@ public class StoryChannelBuilder {
                     queuedIdleTime = 0;
 
                     // Typing speed
-                    int words = message.message.trim().split("\\s+").length;
+                    int words = 0;
+                    // Number of words in the entirety of the message
+                    if(message.message != null)
+                        words += message.message.trim().split("\\s+").length;
+                    if(message.embed != null) {
+                        if(message.embed.titleMessage != null)
+                            words += message.embed.titleMessage.trim().split("\\s+").length;
+                        if(message.embed.description != null)
+                            words += message.embed.description.trim().split("\\s+").length;
+                        if(message.embed.footerMessage != null)
+                            words += message.embed.footerMessage.trim().split("\\s+").length;
+                        if(message.embed.fields != null) {
+                            for(SheetMessageBuilder.EmbedConfig.FieldConfig field : message.embed.fields) {
+                                words += field.name.trim().split("\\s+").length;
+                                words += field.message.trim().split("\\s+").length;
+                            }
+                        }
+                    }
                     message.typingTime = (1f / wordsPerMinute) * words;
                     message.typingTime += queuedTypingTime;
                     queuedTypingTime = 0;

@@ -3,7 +3,6 @@ package com.kaigan.bots.narrator.story;
 import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
 import com.kaigan.bots.narrator.script.ScriptContext;
-import net.dv8tion.jda.api.MessageBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.*;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
@@ -267,12 +266,10 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                     // Else time to show message or prepare first message
                     if (currentMessage != -1) {
                         SenderMessage message = tree.current.senderMessages.get(currentMessage);
-                        if (message.message != null && !message.message.isEmpty()) {
-                            // Send message
-                            TextChannel originChannel = resolveSenderChannel(message.npc);
-                            bot.queue(() -> originChannel.sendMessage(new MessageBuilder(message.message).build()), log, "Send message to channel " + channel.getName());
-                            instance.resetInstanceTimeout();            // Reset instance timeout
-                        }
+                        // Build this message
+                        TextChannel originChannel = resolveSenderChannel(message.npc);
+                        bot.queue(() -> message.build(bot, originChannel), log, "Send message to channel " + channel.getName());
+                        instance.resetInstanceTimeout();            // Reset instance timeout
                     }
                     // Else time for first message or already showed last message
                     currentMessage++;

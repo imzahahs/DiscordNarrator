@@ -1,12 +1,11 @@
 package com.kaigan.bots.narrator.story;
 
-import sengine.sheets.OnSheetEnded;
+import com.kaigan.bots.narrator.SheetMessageBuilder;
 import sengine.sheets.ParseException;
 import sengine.sheets.SheetFields;
 
 @SheetFields(fields = { "message", "npc", "idleTime", "typingTime" })
-public class SenderMessage implements OnSheetEnded {
-    public String message;
+public class SenderMessage extends SheetMessageBuilder {
     public String npc = StoryChannelBuilder.ConversationBuilder.selectedNpc;
 
     public float idleTime = 0;
@@ -19,6 +18,7 @@ public class SenderMessage implements OnSheetEnded {
 
     @Override
     public void onSheetEnded() {
+        super.onSheetEnded();
         if(npc == null)
             throw new ParseException("npc not set");
     }
