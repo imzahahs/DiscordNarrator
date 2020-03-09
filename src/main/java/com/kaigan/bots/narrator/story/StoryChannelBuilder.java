@@ -376,7 +376,7 @@ public class StoryChannelBuilder {
                 current.isUserIgnored = true;
         }
 
-        public void narrator(ScriptBuilder builder) {
+        public void script(ScriptBuilder builder) {
             validatePreviousSplits();
             if(current == null)
                 push();
