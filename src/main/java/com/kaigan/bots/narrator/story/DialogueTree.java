@@ -1,6 +1,5 @@
 package com.kaigan.bots.narrator.story;
 
-import com.kaigan.bots.narrator.script.ScriptContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -191,14 +190,6 @@ public class DialogueTree {
         // Unlock tags
         for(String tag : current.tagsToUnlock)
             setTagState(tag, true);
-        // Trigger
-        try {
-            if(current.script != null) {
-                new ScriptContext(current.script).run();
-            }
-        } catch (Throwable e) {
-            log.error("Unable to perform trigger for current conversation " + conversations.indexOf(current), e);
-        }
         // Finish current
         current = null;
     }

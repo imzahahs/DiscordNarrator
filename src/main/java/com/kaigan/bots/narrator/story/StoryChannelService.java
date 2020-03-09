@@ -2,6 +2,7 @@ package com.kaigan.bots.narrator.story;
 
 import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
+import com.kaigan.bots.narrator.script.ScriptContext;
 import net.dv8tion.jda.api.MessageBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.*;
@@ -159,6 +160,14 @@ class StoryChannelService implements NarratorService, ScriptState.OnChangeListen
                     currentMessage++;
                     // Try next message
                     if (currentMessage >= tree.current.senderMessages.size()) {
+                        // Run script if available
+                        try {
+                            if(tree.current.script != null) {
+                                new ScriptContext(this, instance, instance.storyService).insert(tree.current.script).run();
+                            }
+                        } catch (Throwable e) {
+                            log.error("Unable to run script for current conversation", e);
+                        }
                         // Finished messages, inform tree that conversation ended
                         tree.finishCurrent();
                         // Reset
