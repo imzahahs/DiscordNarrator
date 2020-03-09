@@ -260,6 +260,7 @@ public class StoryService implements NarratorService {
                 .findFirst()
                 // Else need to reconfigure existing bot
                 .or(() -> storyBots.stream()
+                        .filter(StoryBot::isFree)
                         .min((bot1, bot2) -> {
                             // First sort by profile compatibility
                             boolean bot1ProfileCompatible = state.profilePic.equals(bot1.getProfilePic());
