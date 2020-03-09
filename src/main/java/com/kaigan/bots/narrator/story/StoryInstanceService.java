@@ -163,6 +163,11 @@ public class StoryInstanceService implements NarratorService {
             // Check if already joined as another player
             if(players.containsValue(event.getMember()) && !event.getMember().getId().equals(storyInfo.owner))
                 return false;       // already joined and not the owner, only allow owner to play as multiple players for testing
+            // Else check if has joined another instance
+            boolean hasJoinedAnotherInstance = bot.getServices(StoryInstanceService.class)
+                    .anyMatch(instance -> instance != this && instance.players.containsValue(event.getMember()));
+            if(hasJoinedAnotherInstance)
+                return false;       // already joined another instance, wait for it to finish first
 
             // Else can join
             players.put(name, event.getMember());
