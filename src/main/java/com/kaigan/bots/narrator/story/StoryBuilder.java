@@ -4,6 +4,7 @@ import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorProvider;
 import net.dv8tion.jda.internal.utils.Checks;
 import sengine.sheets.OnSheetEnded;
+import sengine.sheets.ParseException;
 import sengine.sheets.SheetFields;
 import sengine.sheets.SheetStack;
 
@@ -24,6 +25,12 @@ public class StoryBuilder implements NarratorProvider, OnSheetEnded {
         public String name;
         public int color;
         public String profilePic;
+
+        public void name(String name) {
+            if(name.equalsIgnoreCase(StoryChannelBuilder.ORIGIN_NARRATOR))
+                throw new ParseException("Narrator is a reserved name");
+            this.name = name;
+        }
 
         public void color(String color) {
             this.color = (int) Long.parseLong(color, 16);
