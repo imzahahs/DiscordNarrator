@@ -2,9 +2,12 @@ package com.kaigan.bots.narrator.story;
 
 import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
+import com.kaigan.bots.narrator.ProcessedMessage;
+import com.kaigan.bots.narrator.SheetMessageBuilder;
 import com.kaigan.bots.narrator.script.ScriptContext;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.*;
+import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -195,6 +198,13 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         );
     }
 
+    boolean isIdle() {
+        return tTypingScheduled == Long.MAX_VALUE
+                && tNextMessageScheduled == -1
+                && tNextTimedReplyScheduled == Long.MAX_VALUE
+                && tReplySelectionScheduled == Long.MAX_VALUE;
+    }
+
     StoryChannelService(StoryInstanceService instance, StoryChannelBuilder builder) {
         this.instance = instance;
         this.builder = builder;
@@ -270,6 +280,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                         TextChannel originChannel = resolveSenderChannel(message.npc);
                         bot.queue(() -> message.build(bot, originChannel), log, "Send message to channel " + channel.getName());
                         instance.resetInstanceTimeout();            // Reset instance timeout
+                        tTypingScheduled = Long.MAX_VALUE;
                     }
                     // Else time for first message or already showed last message
                     currentMessage++;
@@ -326,6 +337,13 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                 tReplySelectionScheduled = currentTime + instance.storyService.config.storyReplySelectionDelay;
                 if(tree.timedUserMessageIndex != -1)
                     tNextTimedReplyScheduled = currentTime + (long)(tree.timedUserMessageDelay * instance.chatTimingMultiplier * 1000f);
+                // Send typing messages
+                tree.availableUserMessages.stream()
+                        // For each unique player name, send a reply selection
+                        .map(userMessage -> userMessage.player)
+                        .distinct()
+                        .map(this::resolveSenderChannel)
+                        .forEach(channel -> channel.sendTyping().queue());
                 break;
             }
             else if(tree.current == null) {
@@ -390,6 +408,65 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         return false;
     }
 
+    @Override
+    public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+        if(event.getChannel() != channel)
+            return false;       // not monitored
+
+        StoryService storyService = instance.storyService;
+
+        Optional<String[]> commands = storyService.parseCommands(message.raw);
+        if(commands.isPresent()) {
+            // Received commands
+            String[] parameters = commands.get();
+
+            if(parameters.length == 2 && parameters[0].equalsIgnoreCase(storyService.config.instanceSpeedCommand)) {
+                // Parse duration number
+                try {
+                    float speed = Float.parseFloat(parameters[1]);
+                    if(speed > 0) {
+                        // Valid speed parameter, but only respond if its the owner of the story
+                        if(event.getMember().getId().contentEquals(instance.storyInfo.owner)) {
+                            instance.chatTimingMultiplier = 1f / speed;
+                            log.info("Setting speed to {} for instance {}", speed, instance.builder.title);
+                        }
+                    }
+                } catch (Throwable e) {
+                    // ignore
+                }
+
+                return false;
+            }
+
+            if(parameters.length == 1 && parameters[0].equalsIgnoreCase(storyService.config.instanceQuitCommand)) {
+                // Player wants to quit, only allow if all story channels are idle
+                boolean isActive = instance.channels.values().stream()
+                        .map(StoryChannelService::isIdle)
+                        .anyMatch(isIdle -> !isIdle);
+                if(!isActive) {
+                    // Okay, send message to all channels of quit request
+                    for (StoryChannelService channel : instance.channels.values()) {
+                        SheetMessageBuilder quitMessage = storyService.config.instanceQuitMessage.select();
+                        bot.queue(() -> quitMessage.build(bot, channel.channel,
+                                "participant", event.getMember().getAsMention()
+                        ), log, "Inform quit request");
+                    }
+                    // Queue quit timeout
+                    if(event.getMember().getId().contentEquals(instance.storyInfo.owner))
+                        instance.resetInstanceTimeout(0);           // if owner, quit immediately
+                    else
+                        instance.resetInstanceTimeout(storyService.config.instanceQuitDelay);
+                }
+                return false;
+            }
+
+            // Else unrecognized command
+            return false;
+        }
+
+        return false;
+    }
+
     private void reply(String userMessage) {
         int index = tree.makeCurrent(userMessage);
         if(index == -1)
@@ -406,8 +483,8 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
             if(selection.selection.contains(message)) {
                 // Edit message
                 UserMessage finalMessage = message;
-                narrator.queue(() -> selection.selectionMessage.editMessage(finalMessage.message), log, "Edit reply selection message with final reply");
                 narrator.queue(() -> selection.selectionMessage.clearReactions(), log, "Clear choice reactions for selection message");
+                narrator.queue(() -> selection.selectionMessage.editMessage(finalMessage.message), log, "Edit reply selection message with final reply");
             }
             else
                 narrator.queue(selection.selectionMessage::delete, log, "Delete expired selection message");

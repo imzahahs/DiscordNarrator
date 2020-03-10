@@ -45,6 +45,8 @@ public class StoryService implements NarratorService {
             "uploadAcknowledgeMessage", "uploadUnknownError", "uploadErrorMessage", "uploadSuccessMessage",
             "storyNotFoundMessage",
             "intro", "introInviteTimeout", "introConcludedTimeout", "instanceTimeout",
+            "instanceSpeedCommand",
+            "instanceQuitCommand", "instanceQuitMessage", "instanceQuitDelay",
             "chooseReplyMessage", "chooseReplyRowFormat"
     })
     public static class Config implements OnSheetEnded {
@@ -114,6 +116,12 @@ public class StoryService implements NarratorService {
         public long introConcludedTimeout;
         public long instanceTimeout;
 
+        public String instanceSpeedCommand;
+
+        public String instanceQuitCommand;
+        public SetRandomizedSelector<SheetMessageBuilder> instanceQuitMessage;
+        public long instanceQuitDelay;
+
         public SheetMessageBuilder chooseReplyMessage;
         public String chooseReplyRowFormat;
 
@@ -133,6 +141,10 @@ public class StoryService implements NarratorService {
         public void introInviteTimeout(String duration) { introInviteTimeout = NarratorBuilder.parseDuration(duration); }
         public void introConcludedTimeout(String duration) { introConcludedTimeout = NarratorBuilder.parseDuration(duration); }
         public void instanceTimeout(String duration) { instanceTimeout = NarratorBuilder.parseDuration(duration); }
+
+        public void instanceQuitMessage(SheetMessageBuilder[] array) { instanceQuitMessage = new SetRandomizedSelector<>(array); }
+        public void instanceQuitDelay(String duration) { instanceQuitDelay = NarratorBuilder.parseDuration(duration); }
+
 
         @Override
         public void onSheetEnded() {
@@ -327,20 +339,14 @@ public class StoryService implements NarratorService {
         if(!monitoredChannels.contains(event.getChannel().getId()))
             return false;       // not monitored
 
-        String[] words = whitespaceMatcher.matcher(message.raw).replaceAll(" ").split(" ");
+        Optional<String[]> commands = parseCommands(message.raw);
+        if(!commands.isPresent())
+            return false;       // not commands
 
-        // Check if mentioned
-        boolean hasMentioned = Arrays.stream(words).anyMatch(word -> names.contains(word.toLowerCase()));
+        String[] parameters = commands.get();
 
-        if(!hasMentioned)
-            return false;       // not monitored
-
-        // Check if sent google sheet url
-        String googleSheetUrl = Arrays.stream(words)
-                .filter(word -> word.startsWith(GOOGLE_SHEET_URL))
-                .findFirst().orElse(null);
-        if(googleSheetUrl != null) {
-            String id = googleSheetUrl.substring(GOOGLE_SHEET_URL.length()).split("/")[0];
+        if(parameters.length == 1 && parameters[0].startsWith(GOOGLE_SHEET_URL)) {
+            String id = parameters[0].substring(GOOGLE_SHEET_URL.length()).split("/")[0];
 
             log.info("Received upload request: " + id);
 
@@ -351,18 +357,16 @@ public class StoryService implements NarratorService {
         }
 
         // Check if sent story id
-        String storyId = Arrays.stream(words)
-                .filter(StringUtils::isNumeric)
-                .findFirst().orElse(null);
-        if(storyId != null) {
-            log.info("Received story request: " + storyId);
+        if(parameters.length == 1 && StringUtils.isNumeric(parameters[0])) {
+
+            log.info("Received story request: " + parameters[0]);
 
             StoryInstanceService instanceService = new StoryInstanceService(
                     this,
                     event.getChannel(),
                     event.getMember(),
                     null,
-                    storyId
+                    parameters[0]
             );
             bot.addService(instanceService);
 
@@ -370,5 +374,14 @@ public class StoryService implements NarratorService {
         }
 
         return false;
+    }
+
+    Optional<String[]> parseCommands(String message) {
+        String[] words = whitespaceMatcher.matcher(message).replaceAll(" ").split(" ");
+        if(words.length < 2)
+            return Optional.empty();     // empty, prevent UB
+        if(!names.contains(words[0].toLowerCase()))
+            return Optional.empty();     // not referencing service, ignore
+        return Optional.of(Arrays.copyOfRange(words, 1, words.length));
     }
 }

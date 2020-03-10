@@ -32,8 +32,8 @@ public class StoryInstanceService implements NarratorService {
     private final Message buildMessage;
     private final String storyId;
 
-    private StoryService.StoryInfo storyInfo;
-    private StoryBuilder builder;
+    StoryService.StoryInfo storyInfo;
+    StoryBuilder builder;
 
     private String introUploadSuccessFormat;
     private Message introMessage;
@@ -55,7 +55,11 @@ public class StoryInstanceService implements NarratorService {
     private StartStatus status = StartStatus.WAITING;
 
     void resetInstanceTimeout() {
-        tInstanceTimeout = System.currentTimeMillis() + storyService.config.instanceTimeout;
+        resetInstanceTimeout(storyService.config.instanceTimeout);
+    }
+
+    void resetInstanceTimeout(long timeout) {
+        tInstanceTimeout = System.currentTimeMillis() + timeout;
     }
 
     StoryInstanceService(StoryService storyService, TextChannel initiateChannel, Member initiateMember, Message buildMessage, String storyId) {
@@ -146,6 +150,8 @@ public class StoryInstanceService implements NarratorService {
 
         // Instance timeout
         if(currentTime > tInstanceTimeout) {
+            if(tIntroConcludedTimeout != Long.MAX_VALUE)
+                introMessage.delete().queue();          // ignore result
             shutdownInstance();
             bot.removeService(this);
             return -1;
