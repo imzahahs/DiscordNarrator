@@ -25,6 +25,7 @@ public class StoryChannelBuilder {
     public void name(String name) {
         if(!name.matches("[a-z0-9\\-]+") || name.length() >= 100)
             throw new ParseException("invalid channel name");
+        this.name = name;
     }
 
     public StoryChannelBuilder() {
