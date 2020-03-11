@@ -4,7 +4,10 @@ import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
-import net.dv8tion.jda.api.entities.*;
+import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.Icon;
+import net.dv8tion.jda.api.entities.Role;
+import net.dv8tion.jda.api.entities.TextChannel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -82,8 +85,7 @@ class StoryBot implements NarratorService {
 
                 // Change name if required
                 if(!Objects.equals(requestedState.name, state.name)) {
-                    Member bot = narrator.guild.getMemberById(jda.getSelfUser().getId());
-                    bot.modifyNickname(requestedState.name).complete();
+                    guild.getSelfMember().modifyNickname(requestedState.name).complete();
                     state.name = requestedState.name;
                 }
 
