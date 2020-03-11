@@ -398,5 +398,7 @@ public class StoryInstanceService implements NarratorService {
             storyService.bot.removeService(channel);
         }
         channels.clear();
+
+        players.clear();
     }
 }
