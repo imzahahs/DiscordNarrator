@@ -4,7 +4,7 @@ import com.kaigan.bots.narrator.SheetMessageBuilder;
 import sengine.sheets.ParseException;
 import sengine.sheets.SheetFields;
 
-@SheetFields(fields = { "message", "npc", "idleTime", "typingTime" })
+@SheetFields(fields = { "message", "npc", "idleTime", "typingTime", "embed", "file" })
 public class SenderMessage extends SheetMessageBuilder {
     public String npc = StoryChannelBuilder.ConversationBuilder.selectedNpc;
 
