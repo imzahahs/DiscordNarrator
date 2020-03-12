@@ -411,14 +411,14 @@ public class StoryChannelBuilder {
         private void unlocks(String tags) {
             if(current == null)
                 push();
-            current.tagsToUnlock.add(tags);
+            current.tagsToUnlock.addAll(Arrays.asList(SheetParser.splitStringCSV(tags)));
             isTagsModified = true;          // indicate that cannot append sender messages together
         }
 
         private void locks(String tags) {
             if(current == null)
                 push();
-            current.tagsToLock.add(tags);
+            current.tagsToLock.addAll(Arrays.asList(SheetParser.splitStringCSV(tags)));
             isTagsModified = true;          // indicate that cannot append sender messages together
         }
 
@@ -435,7 +435,7 @@ public class StoryChannelBuilder {
         public void proceed_when(String tags) {
             validatePreviousSplits();
             push();
-            current.tags.add(tags);
+            current.tags.addAll(Arrays.asList(SheetParser.splitStringCSV(tags)));
         }
 
 
