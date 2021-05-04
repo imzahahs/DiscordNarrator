@@ -48,7 +48,7 @@ public class StoryChannelBuilder {
 
         public static Range defaultSwitchTime = new Range(0.3f, 0.3f);
         public static Range defaultSentenceTime = new Range(0.9f, 0.8f);                 // 0.9f, 0.8f
-        public static float defaultWordsPerMinute = 4f;                 // 12f
+        public static float defaultWordsPerMinute = 6f;                 // 4f
 
         private static Range switchTime = defaultSwitchTime;
         private static Range sentenceTime = defaultSentenceTime;
@@ -147,13 +147,13 @@ public class StoryChannelBuilder {
             // For all splits, keep track of another set of links so that each split can only be entered once
             for(ConversationBuilder split : splits) {
                 // Create a new tag
-                String lockName = linkPrefix + linkCounter;
+//                String lockName = linkPrefix + linkCounter;
                 linkCounter++;
 
                 // Label this split with the absence of the new tag, so that this conversation does not recurse
                 conversations.addAll(split.conversations);
                 Conversation conversation = split.conversations.get(0);
-                conversation.tags.add("!" + lockName);
+//                conversation.tags.add("!" + lockName);
 
                 // Lock all other splits (and the join) while this conversation is going on
                 conversation.tagsToLock.addAll(allTags);
@@ -161,7 +161,7 @@ public class StoryChannelBuilder {
                 // In the last conversation, unlock all back, including the lock tag so that this split cannot be entered again
                 conversation = split.conversations.get(split.conversations.size() - 1);
                 conversation.tagsToUnlock.addAll(allTags);
-                conversation.tagsToUnlock.add(lockName);
+//                conversation.tagsToUnlock.add(lockName);
             }
 
             // Clear
@@ -173,6 +173,7 @@ public class StoryChannelBuilder {
             current.tags.add(joinName);
             current.tags.add("IDLE");
             current.tagsToLock.add(joinName);
+            current.tagsToLock.addAll(allTags);
             conversations.add(current);
         }
 
@@ -333,7 +334,7 @@ public class StoryChannelBuilder {
         public void choice(UserMessage[] messages) {
             validatePreviousSplits();
             // Choices will always start a new conversation
-            if(current == null || !current.userMessages.isEmpty()  || !current.senderMessages.isEmpty())
+            if(current == null || !current.userMessages.isEmpty()  || !current.senderMessages.isEmpty() || !current.tagsToLock.isEmpty() || !current.tagsToUnlock.isEmpty() || current.script != null)
                 push();
             current.userMessages.addAll(Arrays.asList(messages));
             currentSender = "user";
@@ -388,8 +389,8 @@ public class StoryChannelBuilder {
                 currentSender = message.npc;
             }
 
-            if(current == null || isTagsModified)
-                push();         // first conversation or tags has been modified
+            if(current == null || isTagsModified || !current.tagsToLock.isEmpty() || !current.tagsToUnlock.isEmpty() || current.script != null)
+                push();         // first conversation or tags has been modified, or there are previous actions
 
             current.senderMessages.addAll(Arrays.asList(messages));
         }
@@ -429,7 +430,10 @@ public class StoryChannelBuilder {
 
         public void stop(String tags) {
             validatePreviousSplits();
-            locks(tags);
+            if(tags == null || tags.trim().isEmpty())
+                proceed_when("_never_");
+            else
+                locks(tags);
         }
 
         public void proceed_when(String tags) {

@@ -8,7 +8,7 @@ public class BotMain {
 
     private static final String BOT_TOKEN = "NjgyOTc5Mzg1MDAyNjg4NTMx.Xlk5HA.VbN0-LJd3w-EkTpOg3ZZ8uTBjX4";
 
-    private static final String DISCORD_SERVER = "SIMULACRA";
+    private static final String DISCORD_SERVER = "Kaigan Games";
 
 
     public static void main(String[] args) {

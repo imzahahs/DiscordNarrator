@@ -379,7 +379,7 @@ public class SheetParser {
         // Adjust base shift
         baseShift = adjustBaseShift(baseShift);
         if(baseShift == -1)
-            return null;            // Either sheet ended, or shifting up
+            return existingObject;            // Either sheet ended, or shifting up
 
         int lineStarted = currentLine;      // Used for error logging
 

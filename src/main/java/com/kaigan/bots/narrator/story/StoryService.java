@@ -3,6 +3,7 @@ package com.kaigan.bots.narrator.story;
 import com.kaigan.bots.narrator.*;
 import net.dv8tion.jda.api.entities.Category;
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
 import net.dv8tion.jda.internal.utils.Checks;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -40,14 +41,16 @@ public class StoryService implements NarratorService {
             "storiesPath",
             "codeGenerateMin", "codeGenerateMax",
             "names", "monitoredChannels",
-            "storyBots", "storyBotTimeout", "storyBotTypingInterval", "storyChannelTimestep", "storyReplySelectionDelay",
+            "storyBots", "storyBotTimeout", "storyBotTypingInterval", "storyBotMinTypingInterval", "storyChannelTimestep", "storyReplySelectionDelay",
             "storyCategory",
-            "uploadAcknowledgeMessage", "uploadUnknownError", "uploadErrorMessage", "uploadSuccessMessage",
+            "uploadAcknowledgeMessage", "uploadUnknownError", "uploadErrorMessage", "uploadSuccessMessage", "uploadPrivatelyMessage",
             "storyNotFoundMessage",
+            "endingMessage",
             "intro", "introInviteTimeout", "introConcludedTimeout", "instanceTimeout",
             "instanceSpeedCommand",
-            "instanceQuitCommand", "instanceQuitMessage", "instanceQuitDelay",
-            "chooseReplyMessage", "chooseReplyRowFormat"
+            "instanceQuitCommand", "instanceQuitMessage", "instanceQuitFailedMessage", "instanceQuitDelay",
+            "chooseReplyMessage", "chooseReplyAndTypeMessage", "chooseReplyTypeOnlyMessage",
+            "chooseReplyRowFormat"
     })
     public static class Config implements OnSheetEnded {
 
@@ -99,6 +102,7 @@ public class StoryService implements NarratorService {
         public StoryBotConfig[] storyBots;
         public long storyBotTimeout;
         public long storyBotTypingInterval;
+        public long storyBotMinTypingInterval;
         public long storyChannelTimestep;
         public long storyReplySelectionDelay;
 
@@ -107,9 +111,12 @@ public class StoryService implements NarratorService {
         public SetRandomizedSelector<SheetMessageBuilder> uploadAcknowledgeMessage;
         public SetRandomizedSelector<String> uploadUnknownError;
         public SetRandomizedSelector<SheetMessageBuilder> uploadErrorMessage;
-        public SetRandomizedSelector<String> uploadSuccessMessage;
+        public SetRandomizedSelector<SheetMessageBuilder> uploadSuccessMessage;
+        public SetRandomizedSelector<SheetMessageBuilder> uploadPrivatelyMessage;
 
         public SetRandomizedSelector<SheetMessageBuilder> storyNotFoundMessage;
+
+        public SheetMessageBuilder endingMessage;
 
         public IntroMessageConfig intro;
         public long introInviteTimeout;
@@ -120,21 +127,26 @@ public class StoryService implements NarratorService {
 
         public String instanceQuitCommand;
         public SetRandomizedSelector<SheetMessageBuilder> instanceQuitMessage;
+        public SetRandomizedSelector<SheetMessageBuilder> instanceQuitFailedMessage;
         public long instanceQuitDelay;
 
         public SheetMessageBuilder chooseReplyMessage;
+        public SheetMessageBuilder chooseReplyAndTypeMessage;
+        public SheetMessageBuilder chooseReplyTypeOnlyMessage;
         public String chooseReplyRowFormat;
 
 
         public void uploadAcknowledgeMessage(SheetMessageBuilder[] array) { uploadAcknowledgeMessage = new SetRandomizedSelector<>(array); }
         public void uploadUnknownError(String[] array) { uploadUnknownError = new SetRandomizedSelector<>(array); }
         public void uploadErrorMessage(SheetMessageBuilder[] array) { uploadErrorMessage = new SetRandomizedSelector<>(array); }
-        public void uploadSuccessMessage(String[] array) { uploadSuccessMessage = new SetRandomizedSelector<>(array); }
+        public void uploadSuccessMessage(SheetMessageBuilder[] array) { uploadSuccessMessage = new SetRandomizedSelector<>(array); }
+        public void uploadPrivatelyMessage(SheetMessageBuilder[] array) { uploadPrivatelyMessage = new SetRandomizedSelector<>(array); }
 
         public void storyNotFoundMessage(SheetMessageBuilder[] array) { storyNotFoundMessage = new SetRandomizedSelector<>(array); }
 
         public void storyBotTimeout(String duration) { storyBotTimeout = NarratorBuilder.parseDuration(duration); }
         public void storyBotTypingInterval(String duration) { storyBotTypingInterval = NarratorBuilder.parseDuration(duration); }
+        public void storyBotMinTypingInterval(String duration) { storyBotMinTypingInterval = NarratorBuilder.parseDuration(duration); }
         public void storyChannelTimestep(String duration) { storyChannelTimestep = NarratorBuilder.parseDuration(duration); }
         public void storyReplySelectionDelay(String duration) { storyReplySelectionDelay = NarratorBuilder.parseDuration(duration); }
 
@@ -143,6 +155,7 @@ public class StoryService implements NarratorService {
         public void instanceTimeout(String duration) { instanceTimeout = NarratorBuilder.parseDuration(duration); }
 
         public void instanceQuitMessage(SheetMessageBuilder[] array) { instanceQuitMessage = new SetRandomizedSelector<>(array); }
+        public void instanceQuitFailedMessage(SheetMessageBuilder[] array) { instanceQuitFailedMessage = new SetRandomizedSelector<>(array); }
         public void instanceQuitDelay(String duration) { instanceQuitDelay = NarratorBuilder.parseDuration(duration); }
 
 
@@ -334,6 +347,28 @@ public class StoryService implements NarratorService {
     }
 
     @Override
+    public boolean processPrivateMessage(Narrator bot, PrivateMessageReceivedEvent event, ProcessedMessage message) {
+        Optional<String[]> commands = parseCommands(message.raw);
+        if(!commands.isPresent())
+            return false;       // not commands
+
+        String[] parameters = commands.get();
+
+        if(parameters.length == 1 && parameters[0].startsWith(GOOGLE_SHEET_URL)) {
+            String id = parameters[0].substring(GOOGLE_SHEET_URL.length()).split("/")[0];
+
+            log.info("Received upload request: " + id);
+
+            StoryBuilderService builderService = new StoryBuilderService(this, event.getChannel(), event.getAuthor(), id);
+            bot.addService(builderService);
+
+            return false;
+        }
+
+        return false;
+    }
+
+    @Override
     public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
         // Only process monitored channels
         if(!monitoredChannels.contains(event.getChannel().getId()))
@@ -348,10 +383,15 @@ public class StoryService implements NarratorService {
         if(parameters.length == 1 && parameters[0].startsWith(GOOGLE_SHEET_URL)) {
             String id = parameters[0].substring(GOOGLE_SHEET_URL.length()).split("/")[0];
 
-            log.info("Received upload request: " + id);
+            // Delete upload message to protect story source code
+            bot.queue(() -> event.getMessage().delete(), log, "Delete upload message");
 
-            StoryBuilderService builderService = new StoryBuilderService(this, event, id);
-            bot.addService(builderService);
+            // Send message to ask upload privately
+            bot.queue(() -> config.uploadPrivatelyMessage.select().build(
+                    bot,
+                    event.getChannel(),
+                    "sender", event.getMember().getAsMention()
+            ), log, "Message to ask upload privately");
 
             return false;
         }
@@ -365,7 +405,6 @@ public class StoryService implements NarratorService {
                     this,
                     event.getChannel(),
                     event.getMember(),
-                    null,
                     parameters[0]
             );
             bot.addService(instanceService);

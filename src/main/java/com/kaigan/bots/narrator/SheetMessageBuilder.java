@@ -3,7 +3,7 @@ package com.kaigan.bots.narrator;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.MessageBuilder;
 import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.TextChannel;
+import net.dv8tion.jda.api.entities.MessageChannel;
 import net.dv8tion.jda.api.requests.restaction.MessageAction;
 import net.dv8tion.jda.api.utils.AttachmentOption;
 import sengine.sheets.OnSheetEnded;
@@ -160,7 +160,7 @@ public class SheetMessageBuilder implements OnSheetEnded {
         return existing.editMessage(builder.build());
     }
 
-    public MessageAction build(Narrator bot, TextChannel channel, Object ... params) {
+    public MessageAction build(Narrator bot, MessageChannel channel, Object ... params) {
         if(message == null && embed == null) {
             // Sending file only
             if(file.isSpoiler)

@@ -14,9 +14,6 @@ import java.util.List;
 @SheetFields(fields = {
         "title", "author", "description",
         "npcs", "players"
-}, requiredFields = {
-        "title", "author", "description",
-        "players"
 })
 public class StoryBuilder implements NarratorProvider, OnSheetEnded {
 
@@ -81,6 +78,9 @@ public class StoryBuilder implements NarratorProvider, OnSheetEnded {
 
     @Override
     public void onSheetEnded() {
+        Checks.notBlank(title, "title");
+        Checks.notBlank(description, "description");
+        Checks.notBlank(author, "author");
         Checks.notEmpty(channels, "channels");
         Checks.notEmpty(players, "players");
     }

@@ -5,6 +5,7 @@ import com.kaigan.bots.narrator.NarratorService;
 import com.kaigan.bots.narrator.ProcessedMessage;
 import com.kaigan.bots.narrator.SheetMessageBuilder;
 import com.kaigan.bots.narrator.script.ScriptContext;
+import net.dv8tion.jda.api.MessageBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.*;
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
@@ -18,39 +19,67 @@ import java.util.stream.Collectors;
 public class StoryChannelService implements NarratorService, ScriptState.OnChangeListener<Object> {
     private static final Logger log = LogManager.getLogger("StoryChannelService");
 
+    public interface OnReceivePlayerMessage {
+        void onReceivePlayerMessage(String player, String message);
+    }
+
     private class ReplySelection {
         final String botName;
         final Member player;
         final TextChannel channel;
-        final List<UserMessage> selection;
+        final List<UserMessage> selection = new ArrayList<>();
         final List<Emote> choiceEmotes;
         final Message selectionMessage;
+        final boolean hasWildcard;
 
         ReplySelection(String botName) {
+            StoryService storyService = instance.storyService;
+
             this.botName = botName;
             this.player = instance.players.get(botName);
             if(player == null)
                 log.error("Player '{}' not found in channel '{}'", botName, builder.name);
             channel = resolveSenderChannel(botName);
             // Filter selection for only this player
-            selection = tree.availableUserMessages.stream()
-                    .filter(userMessage -> userMessage.player.contentEquals(botName))
-                    .collect(Collectors.toList());
+            boolean hasWildcard = false;
+            for(UserMessage userMessage : tree.availableUserMessages) {
+                if(!userMessage.player.contentEquals(botName))
+                    continue;
+                if(userMessage.message.startsWith(DialogueTree.DIALOG_TIMER))
+                    continue;       // dont show timer choices
+                if(userMessage.message.startsWith(DialogueTree.KEYBOARD_PREFIX)) {
+                    // Dont show wildcard as choices, but remember it
+                    hasWildcard = true;
+                    continue;
+                }
+                // Else keep track of this choice
+                selection.add(userMessage);
+            }
+            this.hasWildcard = hasWildcard;
             // Build message
             StringBuilder sb = new StringBuilder();
-            Narrator narrator = instance.storyService.bot;
+            Narrator narrator = storyService.bot;
             choiceEmotes = new ArrayList<>(selection.size());
             for(int c = 0; c < selection.size(); c++) {
                 Emote emote = narrator.getChoiceEmote(c).get();
                 choiceEmotes.add(emote);
                 if(c > 0)
                     sb.append("\n");
-                sb.append(narrator.format(instance.storyService.config.chooseReplyRowFormat,
+                sb.append(narrator.format(storyService.config.chooseReplyRowFormat,
                         "choiceEmote", emote.getAsMention(),
-                        "message", selection.get(c).message
+                        "message", selection.get(c).message,
+                        instance.formatResolver
                 ));
             }
-            selectionMessage = instance.storyService.config.chooseReplyMessage.build(narrator, channel,
+            SheetMessageBuilder messageBuilder;
+            if(selection.isEmpty())
+                messageBuilder = storyService.config.chooseReplyTypeOnlyMessage;
+            else if(hasWildcard)
+                messageBuilder = storyService.config.chooseReplyAndTypeMessage;
+            else
+                messageBuilder = storyService.config.chooseReplyMessage;
+            MessageBuilder mb;
+            selectionMessage = messageBuilder.build(narrator, channel,
                     "selection", sb.toString().trim(),
                     "player", player != null ? player.getAsMention() : narrator.guild.getPublicRole().getAsMention()        // default to @everyone if unable to resolve player
             ).complete();
@@ -68,7 +97,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
 
     private final DialogueTree tree;
 
-    private TextChannel channel;
+    TextChannel channel;
 
     private int currentMessage = -1;
     private long tTypingScheduled = Long.MAX_VALUE;
@@ -77,10 +106,20 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
     private long tReplySelectionScheduled = Long.MAX_VALUE;
     private boolean hasCheckedDialogueTree = false;
 
+    private TextChannel lastTypingChannel = null;
+    private long tLastTypingTime = -1;
+
     private final Map<String, TextChannel> storyBotChannels = new HashMap<>();
     private final Set<String> players = new HashSet<>();
 
+    String keyboardReply;
+    OnReceivePlayerMessage onReceivePlayerMessage;
+
     private List<ReplySelection> replySelections = Collections.emptyList();
+
+    public void reset() {
+        tree.finishCurrent();
+    }
 
     public void addNpc(String npc, String message) {
         // Check if already added
@@ -104,10 +143,13 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         // Resolve bot channel
         TextChannel botChannel = storyBot.getTextChannelById(channel.getId());
         storyBotChannels.put(npc, botChannel);
-        // Send message
-        narrator.queue(() -> channel.sendMessage(narrator.format(message,
-                "npc", botMember.getAsMention()
-        )), log, "Sending npc added message");
+        if (message != null && !message.isEmpty()) {
+            // Send message
+            narrator.queue(() -> channel.sendMessage(narrator.format(message,
+                    "npc", botMember.getAsMention(),
+                    instance.formatResolver
+            )), log, "Sending npc added message");
+        }
     }
 
     public void removeNpc(String npc, String message) {
@@ -126,12 +168,19 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
             log.error("Npc {} not found in {}", npc, builder.name);
             return;
         }
-        // Send message
         Narrator narrator = instance.storyService.bot;
+        if (botChannel.getGuild().getSelfMember().getId().equals(narrator.guild.getSelfMember().getId())) {
+            log.error("Not removing Narrator used as npc {} in {}", npc, builder.name);
+            return;
+        }
+        // Send message
         Member botMember = narrator.guild.getMemberById(botChannel.getGuild().getSelfMember().getId());
-        narrator.queue(() -> channel.sendMessage(narrator.format(message,
-                "npc", botMember.getAsMention()
-        )), log, "Sending npc left message");
+        if (message != null && !message.isEmpty()) {
+            narrator.queue(() -> channel.sendMessage(narrator.format(message,
+                    "npc", botMember.getAsMention(),
+                    instance.formatResolver
+            )), log, "Sending npc left message");
+        }
         // Remove permission
         narrator.queue(() -> channel.getPermissionOverride(botMember).delete(),
                 log, "Remove npc story bot access to channel " + builder.name
@@ -169,7 +218,8 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         // Send message
         narrator.queue(() -> channel.sendMessage(narrator.format(message,
                 "participant", participant.getAsMention(),
-                "player", botMember.getAsMention()
+                "player", botMember.getAsMention(),
+                instance.formatResolver
         )), log, "Sending player added message");
     }
 
@@ -185,17 +235,55 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         Narrator narrator = instance.storyService.bot;
         Member participant = instance.players.get(player);
         Member botMember = narrator.guild.getMemberById(botChannel.getGuild().getSelfMember().getId());
-        narrator.queue(() -> channel.sendMessage(narrator.format(message,
-                "player", botMember.getAsMention(),
-                "participant", participant.getAsMention()
-        )), log, "Sending player left message");
+        if(participant != null && message != null && !message.isEmpty()) {
+            narrator.queue(() -> channel.sendMessage(narrator.format(message,
+                    "player", botMember.getAsMention(),
+                    "participant", participant.getAsMention(),
+                    instance.formatResolver
+            )), log, "Sending player left message");
+        }
         // Remove permissions
-        narrator.queue(() -> channel.getPermissionOverride(botMember).delete(),
-                log, "Remove npc story bot access to channel " + builder.name
-        );
-        narrator.queue(() -> channel.getPermissionOverride(participant).delete(),
-                log, "Remove npc story bot access to channel " + builder.name
-        );
+        PermissionOverride botOVerride = channel.getPermissionOverride(botMember);
+        if(botOVerride != null) {
+            narrator.queue(botOVerride::delete,
+                    log, "Remove npc story bot access to channel " + builder.name
+            );
+        }
+        if(participant != null) {       // null check cuz owners can assume 2 characters at once
+            PermissionOverride playerOVerride = channel.getPermissionOverride(participant);
+            if(playerOVerride != null) {
+                narrator.queue(playerOVerride::delete,
+                        log, "Remove npc story bot access to channel " + builder.name
+                );
+            }
+        }
+    }
+
+    void removePlayer(String player) {
+        // Check if added
+        player = player.toLowerCase();
+        if(!players.remove(player))
+            return;
+        TextChannel botChannel = storyBotChannels.remove(player);
+        // Send message
+        Narrator narrator = instance.storyService.bot;
+        Member participant = instance.players.get(player);
+        Member botMember = narrator.guild.getMemberById(botChannel.getGuild().getSelfMember().getId());
+        // Remove permissions
+        PermissionOverride botOVerride = channel.getPermissionOverride(botMember);
+        if(botOVerride != null) {
+            narrator.queue(botOVerride::delete,
+                    log, "Remove npc story bot access to channel " + builder.name
+            );
+        }
+        if(participant != null) {       // null check cuz owners can assume 2 characters at once
+            PermissionOverride playerOVerride = channel.getPermissionOverride(participant);
+            if(playerOVerride != null) {
+                narrator.queue(playerOVerride::delete,
+                        log, "Remove npc story bot access to channel " + builder.name
+                );
+            }
+        }
     }
 
     boolean isIdle() {
@@ -268,7 +356,18 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                         // Send typing event
                         SenderMessage message = tree.current.senderMessages.get(currentMessage);
                         TextChannel originChannel = resolveSenderChannel(message.npc);
-                        originChannel.sendTyping().queue();     // ignore success or failure
+                        if(originChannel != lastTypingChannel) {
+                            // Send typing if character changed
+                            lastTypingChannel = originChannel;
+                            originChannel.sendTyping().queue();     // ignore success or failure
+                        }
+                        else {
+                            // Else send typing only when exceeding min interval
+                            long elapsed = currentTime - tLastTypingTime;
+                            if(elapsed > instance.storyService.config.storyBotMinTypingInterval)
+                                originChannel.sendTyping().queue();     // ignore success or failure
+                        }
+                        tLastTypingTime = currentTime;
                         tTypingScheduled = currentTime + instance.storyService.config.storyBotTypingInterval;
                     }
                     if (currentTime < tNextMessageScheduled)
@@ -278,7 +377,9 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                         SenderMessage message = tree.current.senderMessages.get(currentMessage);
                         // Build this message
                         TextChannel originChannel = resolveSenderChannel(message.npc);
-                        bot.queue(() -> message.build(bot, originChannel), log, "Send message to channel " + channel.getName());
+                        bot.queue(() -> message.build(bot, originChannel,
+                                instance.formatResolver
+                        ), log, "Send message to channel " + channel.getName());
                         instance.resetInstanceTimeout();            // Reset instance timeout
                         tTypingScheduled = Long.MAX_VALUE;
                     }
@@ -312,14 +413,22 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                 }
                 // Can come here only if finished a conversation
             } else if (currentTime > tReplySelectionScheduled) {
-                tReplySelectionScheduled = Long.MAX_VALUE;
                 // Send reply selection
-                refreshReplySelection();
+                try {
+                    refreshReplySelection();
+                    tReplySelectionScheduled = Long.MAX_VALUE;
+                } catch (Throwable e) {
+                    log.error("Unable to send reply selection messages, retrying", e);
+                    tReplySelectionScheduled = currentTime + instance.storyService.config.storyReplySelectionDelay;
+                }
                 break out;
             } else if (currentTime > tNextTimedReplyScheduled) {
                 // It's time to reply
                 tNextTimedReplyScheduled = Long.MAX_VALUE;         // Clear timed reply
-                reply(tree.availableUserMessages.get(tree.timedUserMessageIndex).message);
+                tReplySelectionScheduled = Long.MAX_VALUE;
+                UserMessage timedMessage = tree.availableUserMessages.get(tree.timedUserMessageIndex);
+                reply(timedMessage.message, timedMessage.player,true);
+                continue;
             } else if (hasCheckedDialogueTree)
                 break out;
 
@@ -336,7 +445,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                 // Queue sending of reply selection
                 tReplySelectionScheduled = currentTime + instance.storyService.config.storyReplySelectionDelay;
                 if(tree.timedUserMessageIndex != -1)
-                    tNextTimedReplyScheduled = currentTime + (long)(tree.timedUserMessageDelay * instance.chatTimingMultiplier * 1000f);
+                    tNextTimedReplyScheduled = currentTime + instance.storyService.config.storyReplySelectionDelay + (long)(tree.timedUserMessageDelay * 1000f);
                 // Send typing messages
                 tree.availableUserMessages.stream()
                         // For each unique player name, send a reply selection
@@ -404,7 +513,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         if(index == -1)
             return false;       // not monitored
         // Else send this reply
-        reply(selection.selection.get(index).message);
+        reply(selection.selection.get(index).message, selection.botName,true);
         return false;
     }
 
@@ -413,64 +522,38 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         if(event.getChannel() != channel)
             return false;       // not monitored
 
-        StoryService storyService = instance.storyService;
+        if(instance.processInstanceCommands(bot, event, message))
+            return false;       // narrator command
 
-        Optional<String[]> commands = storyService.parseCommands(message.raw);
-        if(commands.isPresent()) {
-            // Received commands
-            String[] parameters = commands.get();
-
-            if(parameters.length == 2 && parameters[0].equalsIgnoreCase(storyService.config.instanceSpeedCommand)) {
-                // Parse duration number
-                try {
-                    float speed = Float.parseFloat(parameters[1]);
-                    if(speed > 0) {
-                        // Valid speed parameter, but only respond if its the owner of the story
-                        if(event.getMember().getId().contentEquals(instance.storyInfo.owner)) {
-                            instance.chatTimingMultiplier = 1f / speed;
-                            log.info("Setting speed to {} for instance {}", speed, instance.builder.title);
-                        }
-                    }
-                } catch (Throwable e) {
-                    // ignore
+        // Else check if replying custom message
+        for(ReplySelection replySelection : replySelections) {
+            if(!replySelection.hasWildcard)
+                continue;       // not accepting wildcard messages
+            // Check player
+            if(replySelection.player == null || replySelection.player == event.getMember()) {
+                // Try to reply
+                if(reply(message.raw, replySelection.botName,false)) {
+                    // Delete original message then
+                    event.getMessage().delete().queue();
+                    return false;      // matched
                 }
-
-                return false;
             }
+            // Else try other selections
+        }
 
-            if(parameters.length == 1 && parameters[0].equalsIgnoreCase(storyService.config.instanceQuitCommand)) {
-                // Player wants to quit, only allow if all story channels are idle
-                boolean isActive = instance.channels.values().stream()
-                        .map(StoryChannelService::isIdle)
-                        .anyMatch(isIdle -> !isIdle);
-                if(!isActive) {
-                    // Okay, send message to all channels of quit request
-                    for (StoryChannelService channel : instance.channels.values()) {
-                        SheetMessageBuilder quitMessage = storyService.config.instanceQuitMessage.select();
-                        bot.queue(() -> quitMessage.build(bot, channel.channel,
-                                "participant", event.getMember().getAsMention()
-                        ), log, "Inform quit request");
-                    }
-                    // Queue quit timeout
-                    if(event.getMember().getId().contentEquals(instance.storyInfo.owner))
-                        instance.resetInstanceTimeout(0);           // if owner, quit immediately
-                    else
-                        instance.resetInstanceTimeout(storyService.config.instanceQuitDelay);
-                }
-                return false;
-            }
-
-            // Else unrecognized command
-            return false;
+        if(onReceivePlayerMessage != null) {
+            String player = instance.playerNameLookup.get(event.getMember());
+            if(player != null)
+                onReceivePlayerMessage.onReceivePlayerMessage(player, message.raw);
         }
 
         return false;
     }
 
-    private void reply(String userMessage) {
-        int index = tree.makeCurrent(userMessage);
+    private boolean reply(String userMessage, String userName, boolean isSelection) {
+        int index = tree.makeCurrent(userMessage, userName, isSelection);
         if(index == -1)
-            return;       // contact is not expecting this result, UB
+            return false;       // contact is not expecting this result, UB
         // Else accepted, collapse all selections
         tNextTimedReplyScheduled = Long.MAX_VALUE;
         // Else recognize user's message, only if it's not ignored by the conversation and it's not a timed reply
@@ -480,17 +563,20 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         // Delete or update user message
         Narrator narrator = instance.storyService.bot;
         for(ReplySelection selection : replySelections) {
-            if(selection.selection.contains(message)) {
+            if(message != null && selection.botName.contentEquals(message.player)) {
                 // Edit message
-                UserMessage finalMessage = message;
-                narrator.queue(() -> selection.selectionMessage.clearReactions(), log, "Clear choice reactions for selection message");
-                narrator.queue(() -> selection.selectionMessage.editMessage(finalMessage.message), log, "Edit reply selection message with final reply");
+                narrator.queue(selection.selectionMessage::clearReactions, log, "Clear choice reactions for selection message");
+                narrator.queue(() -> selection.selectionMessage.editMessage(userMessage), log, "Edit reply selection message with final reply");
             }
             else
                 narrator.queue(selection.selectionMessage::delete, log, "Delete expired selection message");
         }
+        // Remember
+        keyboardReply = userMessage;
+
         // Done
         replySelections = Collections.emptyList();
+        return true;
     }
 
     @Override

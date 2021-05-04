@@ -1,5 +1,6 @@
 package com.kaigan.bots.narrator;
 
+import com.neovisionaries.ws.client.WebSocketFactory;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Category;
@@ -14,8 +15,14 @@ import net.dv8tion.jda.api.events.guild.member.update.GuildMemberUpdateNicknameE
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
+import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionAddEvent;
+import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionRemoveEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.requests.RestAction;
+import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -52,8 +59,6 @@ public class Narrator extends ListenerAdapter {
     public static final OkHttpClient okHttpClient = new OkHttpClient();
 
     private static final Pattern RE = Pattern.compile(
-            "\\\\(.)" +         // Treat any character after a backslash literally
-            "|" +
             "(%\\(([^)]+)\\))"  // Look for %(keys) to replace
     );
 
@@ -182,6 +187,10 @@ public class Narrator extends ListenerAdapter {
         return path.toString();
     }
 
+    public interface FormatResolver {
+        String resolve(String identifier);
+    }
+
     /**
      * Expands format strings containing <code>%(keys)</code>.
      *
@@ -202,14 +211,22 @@ public class Narrator extends ListenerAdapter {
      * @return The formatted string.
      */
     public String format(String format, Object ... params) {
-        if(params.length > 0)
-            setFormatParameters(params);
-        return RE.matcher(format).replaceAll(match -> {
-                    String text = match.group(1);
-                    if(text != null)
-                        return text;
-                    // Else get from lookup
-                    String lookup = match.group(3);
+        // Store parameters
+        int length = params.length;
+        FormatResolver resolver = null;
+        if(length % 2 == 1) {
+            // The last parameter must be a FormatResolver
+            resolver = (FormatResolver) params[length - 1];
+            length--;
+        }
+        for(int c = 0; c < length; c+= 2) {
+            String name = (String) params[c];
+            Object value = params[c + 1];
+            textFormatLookup.put(name, value);
+        }
+        FormatResolver finalResolver = resolver;
+        String formatted = RE.matcher(format).replaceAll(match -> {
+                    String lookup = match.group(2);
                     if(lookup.startsWith(":") && lookup.endsWith(":")) {
                         // Resolving emote
                         String emote = lookup.substring(1, lookup.length() - 1);
@@ -217,9 +234,23 @@ public class Narrator extends ListenerAdapter {
                         if(!emotes.isEmpty())
                             return emotes.get(0).getAsMention();
                     }
-                    return textFormatLookup.getOrDefault(lookup, match.group(2)).toString();
+                    // Use given format lookup
+                    Object resolvedLookup = textFormatLookup.get(lookup);
+                    if(resolvedLookup != null)
+                        return resolvedLookup.toString();
+                    // Else us resolver if available
+                    if(finalResolver != null) {
+                        String resolved = finalResolver.resolve(lookup);
+                        if(resolved != null)
+                            return resolved;
+                    }
+                    // Else wasn't able to resolve, just return unchanged
+                    return match.group(0);
                 }
         );
+        // Reset
+        textFormatLookup.clear();
+        return formatted;
     }
 
     public Optional<Emote> getChoiceEmote(int index) {
@@ -239,16 +270,6 @@ public class Narrator extends ListenerAdapter {
 //        }
 //        return sb.toString();
 //    }
-
-    public void setFormatParameters(Object ... params) {
-        if(params.length % 2 != 0)
-            throw new IllegalArgumentException("Invalid layout of parameters");
-        for(int c = 0; c < params.length; c+= 2) {
-            String name = (String) params[c];
-            Object value = params[c + 1];
-            textFormatLookup.put(name, value);
-        }
-    }
 
     public <T> void queue(Supplier<RestAction<T>> restActionSupplier, Logger log, String description) {
         schedule(-1, restActionSupplier, log, description, null);
@@ -388,8 +409,16 @@ public class Narrator extends ListenerAdapter {
 
         // Login and prepare all data
         try {
-            jda = new JDABuilder(token)
+            // TODO: Workaround for certain JDK distributions
+            WebSocketFactory webSocketFactory = new WebSocketFactory()
+                    .setVerifyHostname(false);
+
+            jda = JDABuilder.createDefault(token)
 //                    .setStatus(OnlineStatus.INVISIBLE)
+                    .setChunkingFilter(ChunkingFilter.ALL) // enable member chunking for all guilds
+                    .setMemberCachePolicy(MemberCachePolicy.ALL) // ignored if chunking enabled
+                    .enableIntents(GatewayIntent.GUILD_MEMBERS)
+                    .setWebsocketFactory(webSocketFactory)
                     .build().awaitReady();
 
             // Log guilds discovered for security (someone is able to get the bot invite screen, not sure if it can be added though)
@@ -408,6 +437,65 @@ public class Narrator extends ListenerAdapter {
         }
     }
 
+    @Override
+    public void onPrivateMessageReceived(@Nonnull PrivateMessageReceivedEvent event) {
+        // Ignore if message is from a bot
+        if(event.getAuthor().isBot())
+            return;
+
+        // Serialize all execution on a single thread
+        scheduler.execute(() -> {
+            // Cleanup message
+            ProcessedMessage message = new ProcessedMessage(event.getMessage().getContentDisplay());
+
+            // Inform services
+            servicesIterator.clear();
+            servicesIterator.addAll(services);
+            for(NarratorService service : servicesIterator) {
+                if(service.processPrivateMessage(this, event, message))
+                    return;     // absorbed
+            }
+        });
+    }
+
+    @Override
+    public void onPrivateMessageReactionAdd(@Nonnull PrivateMessageReactionAddEvent event) {
+        // Ignore if is bot
+        if(event.getUser() == null || event.getUser().isBot())
+            return;
+
+        if(event.getReactionEmote().isEmoji())
+            return;     // ignore if normal emoji reaction
+
+        // Serialize all execution on a single thread
+        scheduler.execute(() -> {
+            // Inform services
+            servicesIterator.clear();
+            servicesIterator.addAll(services);
+            for(NarratorService service : servicesIterator) {
+                if(service.processPrivateReactionAdded(this, event))
+                    return;     // absorbed
+            }
+        });
+    }
+
+    @Override
+    public void onPrivateMessageReactionRemove(@Nonnull PrivateMessageReactionRemoveEvent event) {
+        // Ignore if is bot
+        if(event.getUser() == null || event.getUser().isBot())
+            return;
+
+        // Serialize all execution on a single thread
+        scheduler.execute(() -> {
+            // Inform services
+            servicesIterator.clear();
+            servicesIterator.addAll(services);
+            for(NarratorService service : servicesIterator) {
+                if(service.processPrivateReactionRemoved(this, event))
+                    return;     // absorbed
+            }
+        });
+    }
 
     @Override
     public void onGuildMessageReceived(GuildMessageReceivedEvent event) {

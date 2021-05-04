@@ -6,6 +6,9 @@ import net.dv8tion.jda.api.events.guild.member.update.GuildMemberUpdateNicknameE
 import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
+import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionAddEvent;
+import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionRemoveEvent;
 
 public interface NarratorService {
 
@@ -20,6 +23,19 @@ public interface NarratorService {
     default boolean onServiceStop(Narrator bot) {
         return true;        // allow stop
     }
+
+    default boolean processPrivateMessage(Narrator bot, PrivateMessageReceivedEvent event, ProcessedMessage message) {
+        return false;       // passthru
+    }
+
+    default boolean processPrivateReactionAdded(Narrator bot, PrivateMessageReactionAddEvent event) {
+        return false;       // passthru
+    }
+
+    default boolean processPrivateReactionRemoved(Narrator bot, PrivateMessageReactionRemoveEvent event) {
+        return false;       // passthru
+    }
+
 
     default boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
         return false;       // passthru

@@ -2,18 +2,25 @@ package com.kaigan.bots.narrator.story;
 
 import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
+import com.kaigan.bots.narrator.ProcessedMessage;
+import com.kaigan.bots.narrator.SheetMessageBuilder;
+import delight.nashornsandbox.NashornSandbox;
+import delight.nashornsandbox.NashornSandboxes;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.MessageBuilder;
 import net.dv8tion.jda.api.entities.Emote;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.TextChannel;
+import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
 import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import javax.script.ScriptException;
 import java.util.*;
+import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
 public class StoryInstanceService implements NarratorService {
@@ -29,13 +36,11 @@ public class StoryInstanceService implements NarratorService {
     final StoryService storyService;
     private final TextChannel initiateChannel;
     private final Member initiateMember;
-    private final Message buildMessage;
     private final String storyId;
 
     StoryService.StoryInfo storyInfo;
     StoryBuilder builder;
 
-    private String introUploadSuccessFormat;
     private Message introMessage;
     private List<Emote> introChoiceEmotes;
     private Emote cancelEmote;
@@ -45,6 +50,7 @@ public class StoryInstanceService implements NarratorService {
     final Map<String, StoryChannelService> channels = new HashMap<>();
     final ScriptState states = new ScriptState();
     final Map<String, Member> players = new HashMap<>();
+    final Map<Member, String> playerNameLookup = new HashMap<>();
 
     float chatTimingMultiplier = 1f;
 
@@ -54,19 +60,97 @@ public class StoryInstanceService implements NarratorService {
 
     private StartStatus status = StartStatus.WAITING;
 
+    // Script engine
+    private ScriptInterface scriptEngine = null;
+    final Narrator.FormatResolver formatResolver = identifier -> {
+        if(identifier.startsWith("@")) {
+            Object value = states.get(identifier.substring(1), null);
+            if(value != null)
+                return value.toString();
+            return null;
+        }
+        return null;
+    };
+
+
+    public void eval(String js) {
+        if(status != StartStatus.STARTING || players.isEmpty())
+            throw new IllegalStateException("cannot eval while instance is not ready or shutting down");
+
+        if(scriptEngine == null)
+            scriptEngine = new ScriptInterface(this);
+
+        scriptEngine.eval(js);
+    }
+
+
     void resetInstanceTimeout() {
+        if(players.isEmpty())
+            return;         // ignore timeout refreshes if no player (instance is shutting down)
         resetInstanceTimeout(storyService.config.instanceTimeout);
     }
 
-    void resetInstanceTimeout(long timeout) {
+    private void resetInstanceTimeout(long timeout) {
         tInstanceTimeout = System.currentTimeMillis() + timeout;
     }
 
-    StoryInstanceService(StoryService storyService, TextChannel initiateChannel, Member initiateMember, Message buildMessage, String storyId) {
+    public void reset(String[] tags) {
+        for(StoryChannelService channel : channels.values()) {
+            channel.reset();
+        }
+        states.clear();
+        if (tags != null) {
+            for (String tag : tags)
+                states.set(tag, true);
+        }
+    }
+
+    public void playerEnding(String[] names, int color, String message) {
+        StringBuilder sb = new StringBuilder();
+        // Remove player first
+        for(String name : names) {
+            // Resolve player
+            name = name.toLowerCase();
+            Member participant = players.get(name);
+            if(participant != null) {
+                // Remove participant from all channels
+                for(StoryChannelService channel : channels.values())
+                    channel.removePlayer(name);
+                // Unrecognize player
+                players.remove(name);
+                playerNameLookup.remove(participant);
+                if(sb.length() > 0)
+                    sb.append(", ");
+                sb.append(participant.getAsMention());
+            }
+            else
+                log.error("Unable to resolve player {} for ending", name);
+        }
+
+        // Shutdown if no more players
+        if(players.isEmpty()) {
+            // Queue ending timeout
+            resetInstanceTimeout(storyService.config.instanceQuitDelay);
+        }
+
+        // Publish message if available
+        if(message != null && sb.length() > 0) {
+            storyService.config.endingMessage.embed.color = color;
+            storyService.bot.queue(() -> storyService.config.endingMessage.build(storyService.bot, initiateChannel,
+                    "id", storyInfo.id,
+                    "title", builder.title,
+                    "message", storyService.bot.format(message,
+                            "participant", sb.toString(),
+                            formatResolver
+                    )
+            ), log, "Publishing ending message");
+        }
+    }
+
+    StoryInstanceService(StoryService storyService, TextChannel initiateChannel, Member initiateMember, String storyId) {
         this.storyService = storyService;
         this.initiateChannel = initiateChannel;
         this.initiateMember = initiateMember;
-        this.buildMessage = buildMessage;
         this.storyId = storyId;
     }
 
@@ -91,19 +175,23 @@ public class StoryInstanceService implements NarratorService {
         }
 
         // Check if player has already joined another instance
-        boolean hasJoinedAnotherInstance = bot.getServices(StoryInstanceService.class)
-                .anyMatch(instance -> instance != this && instance.players.containsValue(initiateMember));
-        if(hasJoinedAnotherInstance) {
-            // If uploaded build message, just send success response without invite
-            if(buildMessage != null) {
-                bot.queue(() -> initiateChannel.sendMessage(bot.format(introUploadSuccessFormat,
-                        "sender", initiateMember.getAsMention(),
-                        "code", storyId
-                )), log, "Sending upload success message without invite");
+        StoryInstanceService existing = bot.getServices(StoryInstanceService.class)
+                .filter(instance -> instance != this && instance.players.containsValue(initiateMember))
+                .findAny().orElse(null);
+        if(existing != null) {
+            // If this instance is still waiting, remove player and add to this invite
+            if(existing.status == StartStatus.WAITING) {
+                // Remove player from that instance and refresh
+                existing.players.values().remove(initiateMember);
+                existing.playerNameLookup.remove(initiateMember);
+                existing.refreshIntroMessage();
             }
-            // Ignore request to create new invite
-            bot.removeService(this);
-            return -1;
+            else {
+                // Else prev instance already started
+                // Ignore request to create new invite
+                bot.removeService(this);
+                return -1;
+            }
         }
 
         // Load story
@@ -161,6 +249,82 @@ public class StoryInstanceService implements NarratorService {
     }
 
     @Override
+    public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+        if(event.getChannel() != initiateChannel)
+            return false;       // not monitored
+
+        processInstanceCommands(bot, event, message);
+
+        return false;
+    }
+
+    boolean processInstanceCommands(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+        Optional<String[]> commands = storyService.parseCommands(message.raw);
+        if(commands.isPresent()) {
+            // Received commands
+            String[] parameters = commands.get();
+
+            // Only recognize if players sent it
+            if(!players.containsValue(event.getMember()))
+                return false;       // ignore
+
+            if(parameters.length == 2 && parameters[0].equalsIgnoreCase(storyService.config.instanceSpeedCommand)) {
+                // Parse duration number
+                try {
+                    float speed = Float.parseFloat(parameters[1]);
+                    if(speed > 0) {
+                        // Valid speed parameter, but only respond if its the owner of the story
+                        if(event.getMember().getId().contentEquals(storyInfo.owner)) {
+                            chatTimingMultiplier = 1f / speed;
+                            log.info("Setting speed to {} for instance {}", speed, builder.title);
+                        }
+                    }
+                } catch (Throwable e) {
+                    // ignore
+                }
+
+                return true;
+            }
+
+            if(parameters.length == 1 && parameters[0].equalsIgnoreCase(storyService.config.instanceQuitCommand)) {
+                // Player wants to quit, only allow if all story channels are idle
+                boolean isActive = channels.values().stream()
+                        .map(StoryChannelService::isIdle)
+                        .anyMatch(isIdle -> !isIdle);
+                if(!isActive) {
+                    // Okay, send message to all channels of quit request
+                    for (StoryChannelService channel : channels.values()) {
+                        SheetMessageBuilder quitMessage = storyService.config.instanceQuitMessage.select();
+                        bot.queue(() -> quitMessage.build(bot, channel.channel,
+                                "participant", event.getMember().getAsMention()
+                        ), log, "Inform quit request");
+                    }
+                    // Queue quit timeout
+                    if(event.getMember().getId().contentEquals(storyInfo.owner))
+                        resetInstanceTimeout(0);           // if owner, quit immediately
+                    else
+                        resetInstanceTimeout(storyService.config.instanceQuitDelay);
+                }
+                else {
+                    // Okay, send message to all channels of failing to quit
+                    for (StoryChannelService channel : channels.values()) {
+                        SheetMessageBuilder quitMessage = storyService.config.instanceQuitFailedMessage.select();
+                        bot.queue(() -> quitMessage.build(bot, channel.channel,
+                                "participant", event.getMember().getAsMention()
+                        ), log, "Inform quit failed request");
+                    }
+                }
+                return true;
+            }
+
+            // Unknown or malformed command
+            return true;
+        }
+
+        return false;
+    }
+
+    @Override
     public boolean processReactionAdded(Narrator bot, GuildMessageReactionAddEvent event) {
         if(introMessage == null || !event.getMessageId().equals(introMessage.getId()) || status != StartStatus.WAITING)
             return false;       // not monitored
@@ -178,20 +342,31 @@ public class StoryInstanceService implements NarratorService {
         int index = introChoiceEmotes.indexOf(event.getReactionEmote().getEmote());
         if(index != -1) {
             // Chose a player slot, ignore if already occupied
-            String name = builder.players[index].name.toLowerCase();
+            String nameProperCase = builder.players[index].name;
+            String name = nameProperCase.toLowerCase();
             if(players.containsKey(name))
                 return false;       // ignore as someone already selected this slot
             // Check if already joined as another player
             if(players.containsValue(event.getMember()) && !event.getMember().getId().equals(storyInfo.owner))
                 return false;       // already joined and not the owner, only allow owner to play as multiple players for testing
             // Else check if has joined another instance
-            boolean hasJoinedAnotherInstance = bot.getServices(StoryInstanceService.class)
-                    .anyMatch(instance -> instance != this && instance.players.containsValue(event.getMember()));
-            if(hasJoinedAnotherInstance)
-                return false;       // already joined another instance, wait for it to finish first
+            StoryInstanceService existing = bot.getServices(StoryInstanceService.class)
+                    .filter(instance -> instance != this && instance.players.containsValue(event.getMember()))
+                    .findAny().orElse(null);
+            if(existing != null) {
+                // If this instance is still waiting, remove player and add to this invite
+                if (existing.status == StartStatus.WAITING) {
+                    // Remove player from that instance and refresh
+                    existing.players.values().remove(initiateMember);
+                    existing.playerNameLookup.remove(initiateMember);
+                    existing.refreshIntroMessage();
+                } else
+                    return false;       // already joined another instance, wait for it to finish first
+            }
 
             // Else can join
             players.put(name, event.getMember());
+            playerNameLookup.put(event.getMember(), nameProperCase);
 
             // Attempt to prepare story and refresh intro message
             attemptStartStory();
@@ -217,6 +392,7 @@ public class StoryInstanceService implements NarratorService {
 
             // Else remove user from player slot
             players.remove(name);
+            playerNameLookup.remove(player);
 
             // Refresh intro message
             refreshIntroMessage();
@@ -285,20 +461,11 @@ public class StoryInstanceService implements NarratorService {
 
         MessageBuilder messageBuilder = new MessageBuilder();
 
-        // Build acknowledgement message
-        if(buildMessage != null) {
-            if(introUploadSuccessFormat == null)
-                introUploadSuccessFormat = storyService.config.uploadSuccessMessage.select();
-            messageBuilder.append(narrator.format(introUploadSuccessFormat,
-                    "sender", initiateMember.getAsMention(),
-                    "code", storyId
-            ));
-        }
-
         // Intro embed
         EmbedBuilder embedBuilder = new EmbedBuilder()
                 .setTitle(narrator.format(format.title,
-                        "title", builder.title
+                        "title", builder.title,
+                        "id", storyInfo.id
                 ));
 
         // Header
@@ -367,10 +534,7 @@ public class StoryInstanceService implements NarratorService {
 
         if(introMessage == null) {
             // Send new message
-            if(buildMessage != null)
-                introMessage = buildMessage.editMessage(messageBuilder.build()).complete();       // Edit existing build message
-            else
-                introMessage = initiateChannel.sendMessage(messageBuilder.build()).complete();
+            introMessage = initiateChannel.sendMessage(messageBuilder.build()).complete();
 
             // Choice emotes
             for(Emote emote : introChoiceEmotes)
@@ -400,5 +564,12 @@ public class StoryInstanceService implements NarratorService {
         channels.clear();
 
         players.clear();
+        playerNameLookup.clear();
+
+        // Shutdown script engine
+        if(scriptEngine != null) {
+            scriptEngine.scheduler.shutdownNow();
+            scriptEngine = null;
+        }
     }
 }

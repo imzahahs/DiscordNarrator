@@ -2,6 +2,7 @@ package com.kaigan.bots.narrator.story;
 
 import com.kaigan.bots.narrator.Narrator;
 import com.kaigan.bots.narrator.NarratorService;
+import com.neovisionaries.ws.client.WebSocketFactory;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
@@ -78,60 +79,64 @@ class StoryBot implements NarratorService {
             // Else try to reconfigure
             if(!isFree())
                 return false;       // cant reconfigure because this bot is being used by some instances
-            Narrator narrator = storyService.bot;
-            try {
-                // Need to start bot to configure
-                startBot();
-
-                // Change name if required
-                if(!Objects.equals(requestedState.name, state.name)) {
-                    guild.getSelfMember().modifyNickname(requestedState.name).complete();
-                    state.name = requestedState.name;
-                }
-
-                // Change color if required
-                if(!Objects.equals(requestedState.color, state.color)) {
-                    Role role = narrator.guild.getRolesByName(roleName, false).get(0);
-                    role.getManager().setColor(requestedState.color).complete();
-                    state.color = requestedState.color;
-                }
-
-                // Change profile pic if required
-                if(!Objects.equals(requestedState.profilePic, state.profilePic)) {
-                    // Get extension from url
-                    int index = requestedState.profilePic.lastIndexOf('.');
-                    Icon.IconType iconType = Icon.IconType.JPEG;
-                    if(index != -1) {
-                        String extension = requestedState.profilePic.substring(index + 1);
-                        iconType = Icon.IconType.fromExtension(extension);
-                        if(iconType == Icon.IconType.UNKNOWN)
-                            iconType = Icon.IconType.JPEG;      // assume jpeg
-                    }
-
-                    // Load avatar
-                    Icon avatar = Icon.from(new File(narrator.getFile(requestedState.profilePic)), iconType);
-
-                    // Attempt to change profile pic
-                    jda.getSelfUser().getManager().setAvatar(avatar).complete();
-                    state.profilePic = requestedState.profilePic;
-                    state.lastProfilePicChange = System.currentTimeMillis();
-                }
-
-                // Update save
-                narrator.putSave(SAVE_STATE_NAME + token, state);
-
-            } catch (Throwable e) {
-                log.error("Unable to reconfigure bot:\nName: {}\nColor: {}\nProfile Pic: {}",
-                        requestedState.name,
-                        requestedState.color,
-                        requestedState.profilePic,
-                        e
-                );
-                return false;   // failed
-            }
+            // Else is not compatible but asked to reconfigure
         }
-        else
-            startBot();                 // Start bot
+
+        Narrator narrator = storyService.bot;
+        try {
+            // Need to start bot to configure
+            startBot();
+
+            // Change name if required
+            if(!Objects.equals(requestedState.name, guild.getSelfMember().getNickname())) {
+                if (!isFree())
+                    throw new IllegalStateException("Expected name mismatch");
+                guild.getSelfMember().modifyNickname(requestedState.name).complete();
+                state.name = requestedState.name;
+            }
+
+            // Change color if required
+            Role role = narrator.guild.getRolesByName(roleName, false).get(0);
+            if(!Objects.equals(requestedState.color, state.color)) {
+                if (!isFree())
+                    throw new IllegalStateException("Expected color mismatch");
+                role.getManager().setColor(requestedState.color).complete();
+                state.color = requestedState.color;
+            }
+
+            // Change profile pic if required
+            if(!Objects.equals(requestedState.profilePic, state.profilePic)) {
+                // Get extension from url
+                int index = requestedState.profilePic.lastIndexOf('.');
+                Icon.IconType iconType = Icon.IconType.JPEG;
+                if(index != -1) {
+                    String extension = requestedState.profilePic.substring(index + 1);
+                    iconType = Icon.IconType.fromExtension(extension);
+                    if(iconType == Icon.IconType.UNKNOWN)
+                        iconType = Icon.IconType.JPEG;      // assume jpeg
+                }
+
+                // Load avatar
+                Icon avatar = Icon.from(new File(narrator.getFile(requestedState.profilePic)), iconType);
+
+                // Attempt to change profile pic
+                jda.getSelfUser().getManager().setAvatar(avatar).complete();
+                state.profilePic = requestedState.profilePic;
+                state.lastProfilePicChange = System.currentTimeMillis();
+            }
+
+            // Update save
+            narrator.putSave(SAVE_STATE_NAME + token, state);
+
+        } catch (Throwable e) {
+            log.error("Unable to reconfigure bot:\nName: {}\nColor: {}\nProfile Pic: {}",
+                    requestedState.name,
+                    requestedState.color,
+                    requestedState.profilePic,
+                    e
+            );
+            return false;   // failed
+        }
 
         // Else configured, recognize instance
         instances.add(instance);
@@ -160,12 +165,17 @@ class StoryBot implements NarratorService {
         try {
             log.info("Starting {}", roleName);
 
-            jda = new JDABuilder(token)
+            // TODO: Workaround for certain JDK distributions
+            WebSocketFactory webSocketFactory = new WebSocketFactory()
+                    .setVerifyHostname(false);
+
+            jda = JDABuilder.createDefault(token)
 //                    .setStatus(OnlineStatus.INVISIBLE)
                     // Piggy back on parent pool
-                    .setCallbackPool(parent.getCallbackPool(), false)
-                    .setGatewayPool(parent.getGatewayPool(), false)
-                    .setRateLimitPool(parent.getRateLimitPool(), false)
+//                    .setCallbackPool(parent.getCallbackPool(), false)
+//                    .setGatewayPool(parent.getGatewayPool(), false)
+//                    .setRateLimitPool(parent.getRateLimitPool(), false)
+                    .setWebsocketFactory(webSocketFactory)
                     .build().awaitReady();
 
             // Log guilds discovered for security (someone is able to get the bot invite screen, not sure if it can be added though)

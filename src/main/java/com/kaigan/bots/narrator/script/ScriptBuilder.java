@@ -15,6 +15,9 @@ public class ScriptBuilder {
     public void removeNpc(RemoveNpc op) { add(op); }
     public void addPlayer(AddPlayer op) { add(op); }
     public void removePlayer(RemovePlayer op) { add(op); }
+    public void ending(EndingOp op) { add(op); }
+    public void eval(EvalOp op) { add(op); }
+    public void reset(ResetOp op) { add(op); }
 
     // Non-sheet functions
     private void add(Operation op) {

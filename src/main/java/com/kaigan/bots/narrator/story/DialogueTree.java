@@ -14,72 +14,51 @@ public class DialogueTree {
 
     public static final String TAG_IDLE = "IDLE";       // true when there are no available conversations
 
-    public static final String KEYBOARD_WILDCARD = "keyboard://";
-    public static final String KEYBOARD_ALPHANUMERIC_WILDCARD = "keyboard://alphanumeric";
-    public static final String KEYBOARD_NUMERIC_WILDCARD = "keyboard://numeric";
+    public static final String KEYBOARD_PREFIX = "keyboard://";
+    public static final String KEYBOARD_WILDCARD = "?";
+    public static final String KEYBOARD_EQUALS = "=";
     public static final String DIALOG_TIMER = "timer://";
 
 
-    private static boolean compareIgnoreCaseAndWhitespace(String s1, String s2) {
+    /**
+     * Soft-compares s1 and s2. s2 must contain all of s1 even if any in-between characters are ignored.
+     * @param s1
+     * @param s2
+     * @return true if s2 contains all of s1
+     */
+    private static boolean compareWildcardReply(String s1, String s2) {
+        s1 = s1.toLowerCase();
+        s2 = s2.replaceAll("\\s+","").toLowerCase();
+
         int len1 = s1.length();
-        int len2 = s2.length();
 
         int i1 = 0;
         int i2 = 0;
+        boolean isContinuous = false;
 
-        boolean started = false;
-        boolean whitespace1 = false;
-        boolean whitespace2 = false;
-        while(true) {
-            // Find first characters
-            char ch1 = 0;
-            while(i1 < len1) {
-                ch1 = s1.charAt(i1);
-                if(!Character.isWhitespace(ch1))
-                    break;      // found character
-                whitespace1 = true;
-                i1++;
+        for(; i1 < len1; i1++) {
+            char ch1 = s1.charAt(i1);
+            if (Character.isWhitespace(ch1)) {
+                isContinuous = false;
+                continue;       // ignore whitespace
             }
-            char ch2 = 0;
-            while(i2 < len2) {
-                ch2 = s2.charAt(i2);
-                if(!Character.isWhitespace(ch2))
-                    break;      // found character
-                whitespace2 = true;
-                i2++;
-            }
-            boolean finished1 = i1 == len1;
-            boolean finished2 = i2 == len2;
-            if(finished1 || finished2)
-                return finished1 && finished2;          // If either string has finished, true only if both strings are finished, else there is an incomplete match
-
-            // Check if comparing whitespace
-            if(whitespace1 || whitespace2) {
-                // There was a whitespace, check if need to compare
-                if(whitespace1 != whitespace2) {
-                    // There was a whitespace mismatch, wrong if already started comparing letters
-                    if(started)
-                        return false;           // whitespace mismatch
-                    // Else not yet started, so ignore whitespace mismatch
-                }
-                // Else whitespace matches, continue comparing letters
-            }
-
-            // Remember comparison has started
-            started = true;
-
-            // Matching letters, reset whitespace status
-            whitespace1 = false;
-            whitespace2 = false;
-
-            // Else have both characters from both strings, compare
-            if(Character.toLowerCase(ch1) != Character.toLowerCase(ch2))
-                return false;       // doesnt compare
-
-            // Else continue next character
-            i1++;
-            i2++;
+            int next = s2.indexOf(ch1, i2);
+            if(next == -1)
+                return false;
+            if (isContinuous && next != i2)     // for whole words, there must be no breaks
+                return false;
+            isContinuous = true;
+            i2 = next + 1;
         }
+
+        return true;
+    }
+
+    private static boolean compareStrictReply(String s1, String s2) {
+        s1 = s1.replaceAll("\\s+","").toLowerCase();
+        s2 = s2.replaceAll("\\s+","").toLowerCase();
+
+        return s1.contentEquals(s2);
     }
 
 
@@ -112,10 +91,8 @@ public class DialogueTree {
 
     /**
      * Makes the conversation containing the specified user message current.
-     * @param userMessage
-     * @return {@link int} index of the user message in the conversation, -1 if not found
      */
-    public int makeCurrent(String userMessage) {
+    public int makeCurrent(String userMessage, String userName, boolean isSelection) {
         String typed = userMessage.trim();
         if(typed.isEmpty())
             return -1;      // dont accept empty string
@@ -123,6 +100,7 @@ public class DialogueTree {
         Conversation bestConversation = null;
         int bestMessageIndex = -1;
 
+        out:
         for(Conversation conversation : available) {
             for(int c = 0; c < conversation.userMessages.size(); c++) {
                 UserMessage message = conversation.userMessages.get(c);
@@ -130,38 +108,44 @@ public class DialogueTree {
                 if(!availableUserMessages.contains(message))
                     continue;       // not allowed
 
-                boolean isWildcard = message.message.startsWith(KEYBOARD_WILDCARD);
+                // Check if user is correct
+                if(!message.player.equalsIgnoreCase(userName))
+                    continue;
 
-                if(isWildcard) {
-                    if(bestConversation == null) {          // Only accept wildcard matches if there are no other matches
-                        if(message.message.equals(KEYBOARD_NUMERIC_WILDCARD)) {
-                            // Make sure message is all numeric
-                            int length = typed.length();
-                            boolean isNumeric = true;
-                            for(int i = 0; i < length; i++) {
-                                char ch = typed.charAt(i);
-                                if (!Character.isDigit(ch) && !Character.isWhitespace(ch)) {
-                                    isNumeric = false;
-                                    break;
-                                }
-                            }
-                            if(isNumeric) {
-                                bestConversation = conversation;
-                                bestMessageIndex = c;
-                            }
-                        }
-                        else {
-                            // Else accepts any input
+                boolean isWildcard = message.message.startsWith(KEYBOARD_PREFIX);
+
+                if(!isSelection && isWildcard) {
+                    String wildcardMessage = message.message.substring(KEYBOARD_PREFIX.length());
+                    if(wildcardMessage.contentEquals(KEYBOARD_WILDCARD)) {
+                        // Keep track of this but try to find better matches
+                        bestConversation = conversation;
+                        bestMessageIndex = c;
+                    }
+                    else if(wildcardMessage.startsWith(KEYBOARD_WILDCARD)) {
+                        wildcardMessage = wildcardMessage.substring(KEYBOARD_WILDCARD.length());
+                        if(compareWildcardReply(wildcardMessage, typed)) {
+                            // Found perfect match
                             bestConversation = conversation;
                             bestMessageIndex = c;
+                            break out;
+                        }
+                    }
+                    else {
+                        if (wildcardMessage.startsWith(KEYBOARD_EQUALS))
+                            wildcardMessage = wildcardMessage.substring(KEYBOARD_EQUALS.length());
+                        if (compareStrictReply(wildcardMessage, typed)) {
+                            // Found perfect match
+                            bestConversation = conversation;
+                            bestMessageIndex = c;
+                            break out;
                         }
                     }
                 }
-                else if(compareIgnoreCaseAndWhitespace(message.message, typed)) {
+                else if(isSelection && typed.equals(message.message)) {
                     // Else just text and it matches
                     bestConversation = conversation;
                     bestMessageIndex = c;
-                    break;
+                    break out;
                 }
             }
         }
@@ -181,9 +165,11 @@ public class DialogueTree {
     }
 
     /**
-     * Finishes current conversation, {@link #current} must not be null
+     * Finishes current conversation
      */
     public void finishCurrent() {
+        if (current == null)
+            return;         // UB or state reset
         // Lock tags
         for(String tag : current.tagsToLock)
             setTagState(tag, false);

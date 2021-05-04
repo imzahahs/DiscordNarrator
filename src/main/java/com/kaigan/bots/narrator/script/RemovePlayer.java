@@ -3,7 +3,7 @@ package com.kaigan.bots.narrator.script;
 import sengine.sheets.ParseException;
 import sengine.sheets.SheetFields;
 
-@SheetFields(requiredFields = { "name", "message" })
+@SheetFields(fields = { "name", "message" }, requiredFields = { "name" })
 public class RemovePlayer extends Operation {
 
     public String name;
