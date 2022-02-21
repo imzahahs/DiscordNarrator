@@ -154,7 +154,7 @@ public class SheetMessageBuilder implements OnSheetEnded {
         if(embed != null) {
             // Embed message
             EmbedBuilder embedBuilder = embed.build(bot, params);
-            builder.setEmbed(embedBuilder.build());
+            builder.setEmbeds(embedBuilder.build());
         }
 
         return existing.editMessage(builder.build());
@@ -177,7 +177,7 @@ public class SheetMessageBuilder implements OnSheetEnded {
         if(embed != null) {
             // Embed message
             EmbedBuilder embedBuilder = embed.build(bot, params);
-            builder.setEmbed(embedBuilder.build());
+            builder.setEmbeds(embedBuilder.build());
         }
 
         MessageAction action = channel.sendMessage(builder.build());

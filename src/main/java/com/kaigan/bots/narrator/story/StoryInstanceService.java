@@ -8,13 +8,10 @@ import delight.nashornsandbox.NashornSandbox;
 import delight.nashornsandbox.NashornSandboxes;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.MessageBuilder;
-import net.dv8tion.jda.api.entities.Emote;
-import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.TextChannel;
-import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
-import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
+import net.dv8tion.jda.api.entities.*;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionRemoveEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,7 +31,7 @@ public class StoryInstanceService implements NarratorService {
     }
 
     final StoryService storyService;
-    private final TextChannel initiateChannel;
+    private final MessageChannel initiateChannel;
     private final Member initiateMember;
     private final String storyId;
 
@@ -147,7 +144,7 @@ public class StoryInstanceService implements NarratorService {
         }
     }
 
-    StoryInstanceService(StoryService storyService, TextChannel initiateChannel, Member initiateMember, String storyId) {
+    StoryInstanceService(StoryService storyService, MessageChannel initiateChannel, Member initiateMember, String storyId) {
         this.storyService = storyService;
         this.initiateChannel = initiateChannel;
         this.initiateMember = initiateMember;
@@ -249,7 +246,7 @@ public class StoryInstanceService implements NarratorService {
     }
 
     @Override
-    public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+    public boolean processMessage(Narrator bot, MessageReceivedEvent event, ProcessedMessage message) {
         if(event.getChannel() != initiateChannel)
             return false;       // not monitored
 
@@ -258,7 +255,7 @@ public class StoryInstanceService implements NarratorService {
         return false;
     }
 
-    boolean processInstanceCommands(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+    boolean processInstanceCommands(Narrator bot, MessageReceivedEvent event, ProcessedMessage message) {
         Optional<String[]> commands = storyService.parseCommands(message.raw);
         if(commands.isPresent()) {
             // Received commands
@@ -325,7 +322,7 @@ public class StoryInstanceService implements NarratorService {
     }
 
     @Override
-    public boolean processReactionAdded(Narrator bot, GuildMessageReactionAddEvent event) {
+    public boolean processReactionAdded(Narrator bot, MessageReactionAddEvent event) {
         if(introMessage == null || !event.getMessageId().equals(introMessage.getId()) || status != StartStatus.WAITING)
             return false;       // not monitored
 
@@ -377,7 +374,7 @@ public class StoryInstanceService implements NarratorService {
     }
 
     @Override
-    public boolean processReactionRemoved(Narrator bot, GuildMessageReactionRemoveEvent event) {
+    public boolean processReactionRemoved(Narrator bot, MessageReactionRemoveEvent event) {
         if(introMessage == null || !event.getMessageId().equals(introMessage.getId()) || status != StartStatus.WAITING)
             return false;       // not monitored
 
@@ -530,7 +527,7 @@ public class StoryInstanceService implements NarratorService {
         }
 
         embedBuilder.setDescription(sb.toString());
-        messageBuilder.setEmbed(embedBuilder.build());
+        messageBuilder.setEmbeds(embedBuilder.build());
 
         if(introMessage == null) {
             // Send new message

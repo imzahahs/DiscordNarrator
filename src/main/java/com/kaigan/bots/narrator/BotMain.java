@@ -6,7 +6,7 @@ import org.apache.logging.log4j.Logger;
 public class BotMain {
     private static final Logger log = LogManager.getLogger("BotMain");
 
-    private static final String BOT_TOKEN = "NjgyOTc5Mzg1MDAyNjg4NTMx.Xlk5HA.VbN0-LJd3w-EkTpOg3ZZ8uTBjX4";
+    private static final String BOT_TOKEN = "NjgyOTc5Mzg1MDAyNjg4NTMx.Xlk4Hg.oSMWniZ9Ofm0pZh68eN_fcBs3KE";
 
     private static final String DISCORD_SERVER = "Kaigan Games";
 

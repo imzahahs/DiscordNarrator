@@ -8,8 +8,8 @@ import com.kaigan.bots.narrator.script.ScriptContext;
 import net.dv8tion.jda.api.MessageBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.*;
-import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -137,7 +137,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         StoryBot storyBot = instance.storyBots.get(npc);
         // Add permission
         Member botMember = narrator.guild.getMemberById(storyBot.getMemberId());
-        narrator.queue(() -> channel.upsertPermissionOverride(botMember).setAllow(Permission.MESSAGE_READ, Permission.MESSAGE_WRITE),
+        narrator.queue(() -> channel.upsertPermissionOverride(botMember).setAllow(Permission.VIEW_CHANNEL.getRawValue() | Permission.ALL_TEXT_PERMISSIONS),
                 log, "Allow npc story bot access to channel " + builder.name
         );
         // Resolve bot channel
@@ -204,11 +204,11 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
         Narrator narrator = instance.storyService.bot;
         StoryBot storyBot = instance.storyBots.get(player);
         // Add permissions for both
-        narrator.queue(() -> channel.upsertPermissionOverride(participant).setAllow(Permission.MESSAGE_READ, Permission.MESSAGE_WRITE),
+        narrator.queue(() -> channel.upsertPermissionOverride(participant).setAllow(Permission.VIEW_CHANNEL.getRawValue() | Permission.ALL_TEXT_PERMISSIONS),
                 log, "Allow participant access to channel " + builder.name
         );
         Member botMember = narrator.guild.getMemberById(storyBot.getMemberId());
-        narrator.queue(() -> channel.upsertPermissionOverride(botMember).setAllow(Permission.MESSAGE_READ, Permission.MESSAGE_WRITE),
+        narrator.queue(() -> channel.upsertPermissionOverride(botMember).setAllow(Permission.VIEW_CHANNEL.getRawValue() | Permission.ALL_TEXT_PERMISSIONS),
                 log, "Allow player story bot access to channel " + builder.name
         );
         // Resolve bot channel
@@ -316,9 +316,9 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
                 // Under story category
                 .setParent(storyCategory)
                 // Deny everyone
-                .addPermissionOverride(bot.guild.getPublicRole(), null, EnumSet.of(Permission.MESSAGE_READ))
+                .addPermissionOverride(bot.guild.getPublicRole(), null, List.of(Permission.VIEW_CHANNEL))
                 // Allow narrator by default
-                .addPermissionOverride(bot.guild.getSelfMember(), EnumSet.of(Permission.MESSAGE_READ), null)
+                .addPermissionOverride(bot.guild.getSelfMember(), List.of(Permission.MANAGE_CHANNEL, Permission.VIEW_CHANNEL), null)
                 .complete();
 
         // Add narrator channel lookup
@@ -496,7 +496,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
     }
 
     @Override
-    public boolean processReactionAdded(Narrator bot, GuildMessageReactionAddEvent event) {
+    public boolean processReactionAdded(Narrator bot, MessageReactionAddEvent event) {
         if(event.getChannel() != channel)
             return false;       // not monitored
         // Check monitored messages
@@ -518,7 +518,7 @@ public class StoryChannelService implements NarratorService, ScriptState.OnChang
     }
 
     @Override
-    public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+    public boolean processMessage(Narrator bot, MessageReceivedEvent event, ProcessedMessage message) {
         if(event.getChannel() != channel)
             return false;       // not monitored
 

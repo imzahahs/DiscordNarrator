@@ -2,8 +2,7 @@ package com.kaigan.bots.narrator.story;
 
 import com.kaigan.bots.narrator.*;
 import net.dv8tion.jda.api.entities.Category;
-import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.internal.utils.Checks;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -338,16 +337,19 @@ public class StoryService implements NarratorService {
         // Get story Category
         Category storyCategory = bot.guild.getCategoriesByName(config.storyCategory, false).get(0);
 
+
+
         // Clear all story channels from previous session
         bot.guild.getTextChannels().stream()
-                .filter(channel -> channel.getParent() == storyCategory)
+                .filter(channel -> channel.getParentCategory() == storyCategory)
+                .filter(channel -> !monitoredChannels.contains(channel.getId()))
                 .forEach(channel -> bot.queue(channel::delete, log, "Delete previous session channels"));
 
         return -1;
     }
 
     @Override
-    public boolean processPrivateMessage(Narrator bot, PrivateMessageReceivedEvent event, ProcessedMessage message) {
+    public boolean processPrivateMessage(Narrator bot, MessageReceivedEvent event, ProcessedMessage message) {
         Optional<String[]> commands = parseCommands(message.raw);
         if(!commands.isPresent())
             return false;       // not commands
@@ -369,7 +371,7 @@ public class StoryService implements NarratorService {
     }
 
     @Override
-    public boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+    public boolean processMessage(Narrator bot, MessageReceivedEvent event, ProcessedMessage message) {
         // Only process monitored channels
         if(!monitoredChannels.contains(event.getChannel().getId()))
             return false;       // not monitored

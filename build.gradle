@@ -23,7 +23,8 @@ dependencies {
     implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.11.2' 
 
     // Discord API
-    implementation 'net.dv8tion:JDA:4.2.0_214'
+    // https://mvnrepository.com/artifact/net.dv8tion/JDA
+    implementation group: 'net.dv8tion', name: 'JDA', version: '5.0.0-alpha.5'
 
     // sengine dependencies
     implementation "com.badlogicgames.gdx:gdx:1.9.10"

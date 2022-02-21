@@ -3,21 +3,14 @@ package com.kaigan.bots.narrator;
 import com.neovisionaries.ws.client.WebSocketFactory;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
-import net.dv8tion.jda.api.entities.Category;
-import net.dv8tion.jda.api.entities.Emote;
-import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.TextChannel;
+import net.dv8tion.jda.api.entities.*;
 import net.dv8tion.jda.api.events.DisconnectEvent;
 import net.dv8tion.jda.api.events.ReconnectedEvent;
 import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent;
-import net.dv8tion.jda.api.events.guild.member.GuildMemberLeaveEvent;
 import net.dv8tion.jda.api.events.guild.member.update.GuildMemberUpdateNicknameEvent;
-import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
-import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
-import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionAddEvent;
-import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionRemoveEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionRemoveEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.requests.RestAction;
@@ -29,6 +22,7 @@ import okhttp3.Response;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import sengine.mass.MassFile;
 import sengine.mass.io.Input;
 import sengine.mass.io.Output;
@@ -392,7 +386,7 @@ public class Narrator extends ListenerAdapter {
             categoryName = null;
         return guild.getTextChannelsByName(name, true).stream()
                 .filter(channel -> {
-                    Category category = channel.getParent();
+                    Category category = channel.getParentCategory();
                     if(category != null)
                         return category.getName().equalsIgnoreCase(categoryName);
                     else
@@ -438,28 +432,45 @@ public class Narrator extends ListenerAdapter {
     }
 
     @Override
-    public void onPrivateMessageReceived(@Nonnull PrivateMessageReceivedEvent event) {
+    public void onMessageReceived(@NotNull MessageReceivedEvent event) {
         // Ignore if message is from a bot
         if(event.getAuthor().isBot())
             return;
 
-        // Serialize all execution on a single thread
-        scheduler.execute(() -> {
-            // Cleanup message
-            ProcessedMessage message = new ProcessedMessage(event.getMessage().getContentDisplay());
+        if (event.getChannelType() == ChannelType.PRIVATE) {
+            // Serialize all execution on a single thread
+            scheduler.execute(() -> {
+                // Cleanup message
+                ProcessedMessage message = new ProcessedMessage(event.getMessage().getContentDisplay());
 
-            // Inform services
-            servicesIterator.clear();
-            servicesIterator.addAll(services);
-            for(NarratorService service : servicesIterator) {
-                if(service.processPrivateMessage(this, event, message))
-                    return;     // absorbed
-            }
-        });
+                // Inform services
+                servicesIterator.clear();
+                servicesIterator.addAll(services);
+                for(NarratorService service : servicesIterator) {
+                    if(service.processPrivateMessage(this, event, message))
+                        return;     // absorbed
+                }
+            });
+        }
+        else {
+            // Serialize all execution on a single thread
+            scheduler.execute(() -> {
+                // Cleanup message
+                ProcessedMessage message = new ProcessedMessage(event.getMessage().getContentDisplay());
+
+                // Inform services
+                servicesIterator.clear();
+                servicesIterator.addAll(services);
+                for(NarratorService service : servicesIterator) {
+                    if(service.processMessage(this, event, message))
+                        return;     // absorbed
+                }
+            });
+        }
     }
 
     @Override
-    public void onPrivateMessageReactionAdd(@Nonnull PrivateMessageReactionAddEvent event) {
+    public void onMessageReactionAdd(@NotNull MessageReactionAddEvent event) {
         // Ignore if is bot
         if(event.getUser() == null || event.getUser().isBot())
             return;
@@ -467,95 +478,68 @@ public class Narrator extends ListenerAdapter {
         if(event.getReactionEmote().isEmoji())
             return;     // ignore if normal emoji reaction
 
-        // Serialize all execution on a single thread
-        scheduler.execute(() -> {
-            // Inform services
-            servicesIterator.clear();
-            servicesIterator.addAll(services);
-            for(NarratorService service : servicesIterator) {
-                if(service.processPrivateReactionAdded(this, event))
-                    return;     // absorbed
-            }
-        });
+        if (event.getChannelType() == ChannelType.PRIVATE)
+        {
+            // Serialize all execution on a single thread
+            scheduler.execute(() -> {
+                // Inform services
+                servicesIterator.clear();
+                servicesIterator.addAll(services);
+                for(NarratorService service : servicesIterator) {
+                    if(service.processPrivateReactionAdded(this, event))
+                        return;     // absorbed
+                }
+            });
+        }
+        else
+        {
+            // Serialize all execution on a single thread
+            scheduler.execute(() -> {
+                // Inform services
+                servicesIterator.clear();
+                servicesIterator.addAll(services);
+                for(NarratorService service : servicesIterator) {
+                    if(service.processReactionAdded(this, event))
+                        return;     // absorbed
+                }
+            });
+        }
     }
 
     @Override
-    public void onPrivateMessageReactionRemove(@Nonnull PrivateMessageReactionRemoveEvent event) {
+    public void onMessageReactionRemove(@NotNull MessageReactionRemoveEvent event) {
         // Ignore if is bot
         if(event.getUser() == null || event.getUser().isBot())
             return;
 
-        // Serialize all execution on a single thread
-        scheduler.execute(() -> {
-            // Inform services
-            servicesIterator.clear();
-            servicesIterator.addAll(services);
-            for(NarratorService service : servicesIterator) {
-                if(service.processPrivateReactionRemoved(this, event))
-                    return;     // absorbed
-            }
-        });
+        if (event.getChannelType() == ChannelType.PRIVATE)
+        {
+            // Serialize all execution on a single thread
+            scheduler.execute(() -> {
+                // Inform services
+                servicesIterator.clear();
+                servicesIterator.addAll(services);
+                for(NarratorService service : servicesIterator) {
+                    if(service.processPrivateReactionRemoved(this, event))
+                        return;     // absorbed
+                }
+            });
+        }
+        else
+        {
+            // Serialize all execution on a single thread
+            scheduler.execute(() -> {
+                // Inform services
+                servicesIterator.clear();
+                servicesIterator.addAll(services);
+                for(NarratorService service : servicesIterator) {
+                    if(service.processReactionRemoved(this, event))
+                        return;     // absorbed
+                }
+            });
+        }
     }
 
-    @Override
-    public void onGuildMessageReceived(GuildMessageReceivedEvent event) {
-        // Ignore if message is from a bot
-        if(event.getAuthor().isBot())
-            return;
-
-        // Serialize all execution on a single thread
-        scheduler.execute(() -> {
-            // Cleanup message
-            ProcessedMessage message = new ProcessedMessage(event.getMessage().getContentDisplay());
-
-            // Inform services
-            servicesIterator.clear();
-            servicesIterator.addAll(services);
-            for(NarratorService service : servicesIterator) {
-                if(service.processMessage(this, event, message))
-                    return;     // absorbed
-            }
-        });
-    }
-
-    @Override
-    public void onGuildMessageReactionAdd(GuildMessageReactionAddEvent event) {
-        // Ignore if is bot
-        if(event.getMember().getUser().isBot())
-            return;
-
-        if(event.getReactionEmote().isEmoji())
-            return;     // ignore if normal emoji reaction
-
-        // Serialize all execution on a single thread
-        scheduler.execute(() -> {
-            // Inform services
-            servicesIterator.clear();
-            servicesIterator.addAll(services);
-            for(NarratorService service : servicesIterator) {
-                if(service.processReactionAdded(this, event))
-                    return;     // absorbed
-            }
-        });
-    }
-
-    @Override
-    public void onGuildMessageReactionRemove(GuildMessageReactionRemoveEvent event) {
-        // Ignore if is bot
-        if(event.getMember() == null || event.getMember().getUser().isBot())
-            return;
-
-        // Serialize all execution on a single thread
-        scheduler.execute(() -> {
-            // Inform services
-            servicesIterator.clear();
-            servicesIterator.addAll(services);
-            for(NarratorService service : servicesIterator) {
-                if(service.processReactionRemoved(this, event))
-                    return;     // absorbed
-            }
-        });
-    }
 
     @Override
     public void onGuildMemberJoin(GuildMemberJoinEvent event) {
@@ -572,20 +556,6 @@ public class Narrator extends ListenerAdapter {
         });
     }
 
-    @Override
-    public void onGuildMemberLeave(GuildMemberLeaveEvent event) {
-        scheduler.execute(() -> {
-            log.info("Member left: " + event.getMember().getEffectiveName());
-
-            // Inform services
-            servicesIterator.clear();
-            servicesIterator.addAll(services);
-            for(NarratorService service : servicesIterator) {
-                if(service.processMemberLeft(this, event))
-                    break;     // absorbed
-            }
-        });
-    }
 
     @Override
     public void onGuildMemberUpdateNickname(@Nonnull GuildMemberUpdateNicknameEvent event) {
@@ -617,7 +587,7 @@ public class Narrator extends ListenerAdapter {
     }
 
     @Override
-    public void onReconnect(ReconnectedEvent event) {
+    public void onReconnected(@NotNull ReconnectedEvent event) {
         log.error("Reconnected with state loss, restarting bot");
         // Restart builder
         jda.shutdownNow();

@@ -1,14 +1,10 @@
 package com.kaigan.bots.narrator;
 
 import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent;
-import net.dv8tion.jda.api.events.guild.member.GuildMemberLeaveEvent;
 import net.dv8tion.jda.api.events.guild.member.update.GuildMemberUpdateNicknameEvent;
-import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionAddEvent;
-import net.dv8tion.jda.api.events.message.guild.react.GuildMessageReactionRemoveEvent;
-import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionAddEvent;
-import net.dv8tion.jda.api.events.message.priv.react.PrivateMessageReactionRemoveEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionRemoveEvent;
 
 public interface NarratorService {
 
@@ -24,28 +20,28 @@ public interface NarratorService {
         return true;        // allow stop
     }
 
-    default boolean processPrivateMessage(Narrator bot, PrivateMessageReceivedEvent event, ProcessedMessage message) {
+    default boolean processPrivateMessage(Narrator bot, MessageReceivedEvent event, ProcessedMessage message) {
         return false;       // passthru
     }
 
-    default boolean processPrivateReactionAdded(Narrator bot, PrivateMessageReactionAddEvent event) {
+    default boolean processPrivateReactionAdded(Narrator bot, MessageReactionAddEvent event) {
         return false;       // passthru
     }
 
-    default boolean processPrivateReactionRemoved(Narrator bot, PrivateMessageReactionRemoveEvent event) {
+    default boolean processPrivateReactionRemoved(Narrator bot, MessageReactionRemoveEvent event) {
         return false;       // passthru
     }
 
 
-    default boolean processMessage(Narrator bot, GuildMessageReceivedEvent event, ProcessedMessage message) {
+    default boolean processMessage(Narrator bot, MessageReceivedEvent event, ProcessedMessage message) {
         return false;       // passthru
     }
 
-    default boolean processReactionAdded(Narrator bot, GuildMessageReactionAddEvent event) {
+    default boolean processReactionAdded(Narrator bot, MessageReactionAddEvent event) {
         return false;       // passthru
     }
 
-    default boolean processReactionRemoved(Narrator bot, GuildMessageReactionRemoveEvent event) {
+    default boolean processReactionRemoved(Narrator bot, MessageReactionRemoveEvent event) {
         return false;       // passthru
     }
 
@@ -54,10 +50,6 @@ public interface NarratorService {
     }
 
     default boolean processMemberJoined(Narrator bot, GuildMemberJoinEvent event) {
-        return false;       // passthru
-    }
-
-    default boolean processMemberLeft(Narrator bot, GuildMemberLeaveEvent event) {
         return false;       // passthru
     }
 }
